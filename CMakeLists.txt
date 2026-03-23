@@ -5,11 +5,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Main library
-add_library(bloom_filter
-    src/bloom_filter.cpp
-)
-target_include_directories(bloom_filter PUBLIC include)
+# Header-only library
+add_library(bloom_filter INTERFACE)
+target_include_directories(bloom_filter INTERFACE include)
 
 # Main executable
 add_executable(main src/main.cpp)
