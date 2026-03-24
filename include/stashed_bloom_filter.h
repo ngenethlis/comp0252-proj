@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "bloom_filter.h"
+#include "bloom_filter_stash.h"
 #include "prob_bool.h"
 #include "stash_set.h"
 
@@ -53,35 +54,42 @@ class StashedBloomFilter {
         }
     }
 
-    ProbBool query(const Key& key) const {
+    [[nodiscard]] ProbBool query(const Key& key) const {
         bool in_stash = _stash.query(key);
         bool in_primary = _primary.query(key);
 
         if (_mode == StashMode::Positive) {
             // Stash holds "definitely yes" keys.
-            if (in_stash) return ProbBool::True;
-            if (in_primary) return ProbBool::Maybe;
-            return ProbBool::False;
-        } else {
-            // Stash holds "definitely no" keys.
-            if (in_stash) return ProbBool::False;
-            if (in_primary) return ProbBool::Maybe;
+            if (in_stash) {
+                return ProbBool::True;
+            }
+            if (in_primary) {
+                return ProbBool::Maybe;
+            }
             return ProbBool::False;
         }
+        // Stash holds "definitely no" keys.
+        if (in_stash) {
+            return ProbBool::False;
+        }
+        if (in_primary) {
+            return ProbBool::Maybe;
+        }
+        return ProbBool::False;
     }
 
     // Convenience: returns true if query is True or Maybe.
-    bool query_bool(const Key& key) const { return is_positive(query(key)); }
+    [[nodiscard]] bool query_bool(const Key& key) const { return is_positive(query(key)); }
 
-    size_t primary_bits() const { return _primary.num_bits(); }
-    size_t stash_bits() const { return _stash.size_bits(); }
-    size_t total_bits() const { return primary_bits() + stash_bits(); }
-    size_t collision_threshold() const { return _collision_threshold; }
-    size_t stash_count() const { return _stash_count; }
-    StashMode mode() const { return _mode; }
+    [[nodiscard]] size_t primary_bits() const { return _primary.num_bits(); }
+    [[nodiscard]] size_t stash_bits() const { return _stash.size_bits(); }
+    [[nodiscard]] size_t total_bits() const { return primary_bits() + stash_bits(); }
+    [[nodiscard]] size_t collision_threshold() const { return _collision_threshold; }
+    [[nodiscard]] size_t stash_count() const { return _stash_count; }
+    [[nodiscard]] StashMode mode() const { return _mode; }
 
-    const BloomFilter<Key, HashPolicy>& primary() const { return _primary; }
-    const Stash& stash() const { return _stash; }
+    [[nodiscard]] const BloomFilter<Key, HashPolicy>& primary() const { return _primary; }
+    [[nodiscard]] const Stash& stash() const { return _stash; }
 
    private:
     BloomFilter<Key, HashPolicy> _primary;

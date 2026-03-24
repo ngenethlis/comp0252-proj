@@ -74,19 +74,21 @@ class BloomFilter {
         return count;
     }
 
-    size_t num_bits() const { return _bits.size(); }
-    size_t num_hashes() const { return _num_hashes; }
+    [[nodiscard]] size_t num_bits() const { return _bits.size(); }
+    [[nodiscard]] size_t num_hashes() const { return _num_hashes; }
 
-    size_t bits_set() const {
+    [[nodiscard]] size_t bits_set() const {
         size_t count = 0;
         for (bool b : _bits) {
-            if (b) ++count;
+            if (b) {
+                ++count;
+            }
         }
         return count;
     }
 
    private:
-    size_t nth_hash(uint64_t h1, uint64_t h2, size_t i) const {
+    [[nodiscard]] size_t nth_hash(uint64_t h1, uint64_t h2, size_t i) const {
         return (h1 + i * h2) % _bits.size();
     }
 

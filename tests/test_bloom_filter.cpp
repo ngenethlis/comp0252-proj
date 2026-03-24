@@ -4,6 +4,8 @@
 #include <string>
 
 #include "bloom_filter.h"
+#include "bloom_filter_stash.h"
+#include "linear_probing_stash.h"
 #include "prob_bool.h"
 #include "stash_set.h"
 #include "stashed_bloom_filter.h"
