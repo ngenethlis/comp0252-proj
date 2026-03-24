@@ -9,3 +9,13 @@ collides or if all bits collide) and the optimal trade off between Bloom filter 
 this could improve false positive rate while maintaining roughly the same storage and time complexities. We can
 also compare it to the performance of a learned Bloom filter through the literature. Our hypothesis is that this new
 approach will be particularly useful in heavy hitter scenarios.
+
+
+size arguement: if we take more space for stashed bf, why not just have larger bf? if same size can we outperform bf.
+
+
+potential use cases:
+
+- malware code/exe signatures for antivirus/malware/common exploit detection
+- bf keys will only be malware, attempt using stash as definately not malware
+- acts like definately not malware and definately yes malware bfs (for this stash would be another bf)

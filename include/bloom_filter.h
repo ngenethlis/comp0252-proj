@@ -21,7 +21,7 @@ struct DefaultHashPolicy {
     static std::pair<uint64_t, uint64_t> hash_pair(uint64_t key) {
         uint64_t h1 = mix64(key);
         uint64_t h2 = mix64(h1);
-        h2 |= 1;
+        h2 |= 1;  // must be odd for coprimality with power-of-2 sizes
         return {h1, h2};
     }
 
@@ -43,52 +43,53 @@ template <typename Key = uint64_t, typename HashPolicy = DefaultHashPolicy>
 class BloomFilter {
    public:
     BloomFilter(size_t num_bits, size_t num_hashes)
-        : bits_(num_bits, false), num_hashes_(num_hashes) {}
+        : _bits(num_bits, false), _num_hashes(num_hashes) {}
 
     void insert(const Key& key) {
         auto [h1, h2] = HashPolicy::hash_pair(key);
-        for (size_t i = 0; i < num_hashes_; ++i) {
-            bits_[nth_hash(h1, h2, i)] = true;
+        for (size_t i = 0; i < _num_hashes; ++i) {
+            _bits[nth_hash(h1, h2, i)] = true;
         }
     }
 
     bool query(const Key& key) const {
         auto [h1, h2] = HashPolicy::hash_pair(key);
-        for (size_t i = 0; i < num_hashes_; ++i) {
-            if (!bits_[nth_hash(h1, h2, i)]) {
+        for (size_t i = 0; i < _num_hashes; ++i) {
+            if (!_bits[nth_hash(h1, h2, i)]) {
                 return false;
             }
         }
         return true;
     }
 
+    // Count how many of the k bit positions for `key` are already set.
     size_t count_collisions(const Key& key) const {
         auto [h1, h2] = HashPolicy::hash_pair(key);
         size_t count = 0;
-        for (size_t i = 0; i < num_hashes_; ++i) {
-            if (bits_[nth_hash(h1, h2, i)]) {
+        for (size_t i = 0; i < _num_hashes; ++i) {
+            if (_bits[nth_hash(h1, h2, i)]) {
                 ++count;
             }
         }
         return count;
     }
 
-    size_t num_bits() const { return bits_.size(); }
-    size_t num_hashes() const { return num_hashes_; }
+    size_t num_bits() const { return _bits.size(); }
+    size_t num_hashes() const { return _num_hashes; }
 
     size_t bits_set() const {
         size_t count = 0;
-        for (size_t i = 0; i < bits_.size(); ++i) {
-            if (bits_[i]) ++count;
+        for (bool b : _bits) {
+            if (b) ++count;
         }
         return count;
     }
 
+   private:
     size_t nth_hash(uint64_t h1, uint64_t h2, size_t i) const {
-        return (h1 + i * h2) % bits_.size();
+        return (h1 + i * h2) % _bits.size();
     }
 
-   private:
-    std::vector<bool> bits_;
-    size_t num_hashes_;
+    std::vector<bool> _bits;
+    size_t _num_hashes;
 };

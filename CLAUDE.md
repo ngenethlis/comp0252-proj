@@ -1,74 +1,76 @@
 # Stashed Bloom Filter
 
-A header-only C++20 library implementing a standard Bloom filter and a stash-based variant that aims to reduce false positive rates by diverting high-collision inserts to a secondary filter.
+A header-only C++20 library implementing a standard Bloom filter and a stash-augmented variant that aims to reduce false positive rates by diverting high-collision inserts to a secondary structure.
 
-## Build
+## Build & test
 
 ```bash
 cmake -B build && cmake --build build
-./build/tests   # run tests
+./build/tests   # run tests (27 tests)
 ./build/bench   # run benchmarks
-./build/main    # main executable
+./build/main    # experiment runner
 ```
 
 ## Project layout
 
 ```
-include/           Header-only library
-  bloom_filter.h           BloomFilter<Key, HashPolicy>
-  stashed_bloom_filter.h   StashedBloomFilter<Key, HashPolicy>
-src/               Executables
-  main.cpp                 Experiment runner
-tests/             Tests
-bench/             Benchmarks
-data/              Experiment datasets
+include/                   Header-only library (all templates, no .cpp files)
+  bloom_filter.h             BloomFilter<Key, HashPolicy> + DefaultHashPolicy
+  prob_bool.h                ProbBool enum {True, Maybe, False}
+  stash_set.h                StashSet CRTP interface + BloomFilterStash, LinearProbingStash
+  stashed_bloom_filter.h     StashedBloomFilter<Key, HashPolicy, Stash>
+src/
+  main.cpp                   Experiment runner (TODO)
+tests/
+  test_bloom_filter.cpp      All unit tests
+bench/
+  bench_bloom_filter.cpp     Benchmarks (TODO)
+data/                        Experiment datasets
 ```
 
-## Usage
+## Architecture
 
-### Basic Bloom filter
+### BloomFilter<Key, HashPolicy>
+Standard Bloom filter using double hashing: `h_i(key) = (h1 + i * h2) mod m`. h2 is forced odd for coprimality with power-of-2 table sizes. Provides `insert`, `query`, `count_collisions`, and `bits_set`.
 
-```cpp
-#include "bloom_filter.h"
+### StashSet (CRTP interface)
+Abstract interface for stash implementations. Concrete types must implement:
+- `do_insert(key) -> bool` (false if stash is full)
+- `do_query(key) -> bool`
+- `do_size_bits() -> size_t`
 
-BloomFilter bf(10000, 7);  // 10000 bits, 7 hash functions
-bf.insert(42);
-bf.query(42);  // true
-```
+Two implementations:
+- **BloomFilterStash** — secondary Bloom filter (never rejects inserts, has its own FPR)
+- **LinearProbingStash** — fixed-capacity hash table storing 64-bit fingerprints (no false positives, but can fill up)
 
-### Stashed Bloom filter
+### StashedBloomFilter<Key, HashPolicy, Stash>
+Wraps a primary BloomFilter + a StashSet. On insert, counts how many of the k bit positions are already set; if `count >= collision_threshold`, the key is diverted to the stash. If the stash is full, falls back to the primary filter.
 
-```cpp
-#include "stashed_bloom_filter.h"
+Supports two stash modes (`StashMode`):
+- **Positive** — stash stores "definitely in set" keys. Query returns `True` for stash hits, `Maybe` for primary hits, `False` otherwise.
+- **Negative** — stash stores "definitely not in set" keys. Query returns `False` for stash hits, `Maybe` for primary hits.
 
-// 10000 total bits, 20% to stash, 7 primary hashes, 5 stash hashes,
-// stash if >= 5 of 7 bit positions already set
-StashedBloomFilter sbf(10000, 0.2, 7, 5, 5);
-sbf.insert(42);
-sbf.query(42);  // true
-```
+### ProbBool
+Three-valued query result: `True` (certain), `Maybe` (Bloom filter positive), `False` (certain negative). Helper `is_positive()` returns true for True/Maybe.
 
-### Custom key types
+## Coding conventions
 
-Both filters are templated as `BloomFilter<Key, HashPolicy>`. To use a custom key type, define a hash policy struct with a static `hash_pair` method:
+- C++20, Google style base with 4-space indent, 100 column limit (see `.clang-format`)
+- Header-only library: all classes are fully templated in `include/`
+- Linting: `.clang-tidy` enables bugprone, clang-analyzer, modernize, performance, readability checks
+- Tests use simple assert macros (no external test framework); add new TEST() blocks to `tests/test_bloom_filter.cpp`
+- Template parameters: `Key` (element type), `HashPolicy` (must provide `static hash_pair(const Key&) -> pair<uint64_t, uint64_t>`), `Stash` (a StashSet CRTP implementation)
 
-```cpp
-struct MyHashPolicy {
-    static std::pair<uint64_t, uint64_t> hash_pair(const MyType& key) {
-        uint64_t h1 = /* ... */;
-        uint64_t h2 = /* ... */ | 1;  // h2 must be odd
-        return {h1, h2};
-    }
-};
+## Adding a new stash set implementation
 
-BloomFilter<MyType, MyHashPolicy> bf(10000, 7);
-```
-
-`DefaultHashPolicy` provides `hash_pair` overloads for `uint64_t` and `std::string`.
+1. Create a class in `include/stash_set.h` inheriting `StashSet<YourClass, Key>` via CRTP
+2. Implement `do_insert`, `do_query`, `do_size_bits`
+3. Add tests in `tests/test_bloom_filter.cpp`
+4. Use as template parameter: `StashedBloomFilter<Key, HashPolicy, YourClass>`
 
 ## Key design decisions
 
-- **Double hashing**: h_i(key) = (h1 + i * h2) mod m. h2 is forced odd so it's coprime with power-of-2 table sizes.
-- **Collision threshold**: `StashedBloomFilter` counts how many of the k primary bit positions are already set. If count >= threshold, the element goes to the stash. The optimal threshold is an open research question for this project.
-- **Stash is a Bloom filter**: the stash is itself a Bloom filter (not exact storage), so it also has a false positive rate. The hypothesis is that splitting the bit budget can still yield a lower combined FPR.
-- **Header-only**: both filters are fully templated, so there are no .cpp files for the library — just link the INTERFACE CMake target.
+- **Double hashing** avoids needing k independent hash functions.
+- **CRTP over virtual dispatch** for the StashSet interface — zero overhead at runtime since all types are resolved at compile time.
+- **Collision threshold** is the core parameter to experiment with: how many of k bits already set should trigger stashing.
+- **sizeof(stashed_bf) = sizeof(bf)**: the total bit budget is split between primary and stash, not increased.

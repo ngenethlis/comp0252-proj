@@ -1,49 +1,92 @@
 #pragma once
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 
 #include "bloom_filter.h"
+#include "prob_bool.h"
+#include "stash_set.h"
 
-template <typename Key = uint64_t, typename HashPolicy = DefaultHashPolicy>
+// StashMode controls the semantics of the stash:
+//   Positive — stash stores "definitely yes" keys (high-collision keys go here)
+//   Negative — stash stores "definitely no" keys (keys that didn't collide)
+enum class StashMode { Positive, Negative };
+
+// StashedBloomFilter<Key, HashPolicy, Stash>
+//
+// A Bloom filter augmented with a secondary stash structure. Keys whose
+// insertion would cause >= collision_threshold bit collisions in the primary
+// filter are diverted to the stash instead.
+//
+// Template parameters:
+//   Key        — element type
+//   HashPolicy — must provide static hash_pair(const Key&)
+//   Stash      — a StashSet implementation (e.g. BloomFilterStash, LinearProbingStash)
+template <typename Key = uint64_t, typename HashPolicy = DefaultHashPolicy,
+          typename Stash = BloomFilterStash<Key, HashPolicy>>
 class StashedBloomFilter {
    public:
-    // total_bits: combined bit budget for primary + stash
-    // stash_fraction: fraction of total_bits allocated to the stash (0.0–1.0)
-    // num_hashes: number of hash functions for the primary filter
-    // stash_hashes: number of hash functions for the stash filter
-    // collision_threshold: how many of k bits already set triggers stashing
-    StashedBloomFilter(size_t total_bits, double stash_fraction, size_t num_hashes,
-                       size_t stash_hashes, size_t collision_threshold)
-        : primary_(total_bits - static_cast<size_t>(total_bits * stash_fraction), num_hashes),
-          stash_(std::max<size_t>(1, static_cast<size_t>(total_bits * stash_fraction)),
-                 stash_hashes),
-          collision_threshold_(collision_threshold) {}
+    // primary_bits:          bits allocated to the primary Bloom filter
+    // num_hashes:            hash function count for the primary filter
+    // stash:                 pre-constructed stash (caller controls its size)
+    // collision_threshold:   number of already-set bit positions that triggers stashing
+    // mode:                  Positive or Negative stash semantics
+    StashedBloomFilter(size_t primary_bits, size_t num_hashes, Stash stash,
+                       size_t collision_threshold, StashMode mode = StashMode::Positive)
+        : _primary(primary_bits, num_hashes),
+          _stash(std::move(stash)),
+          _collision_threshold(collision_threshold),
+          _mode(mode) {}
 
     void insert(const Key& key) {
-        size_t collisions = primary_.count_collisions(key);
-        if (collisions >= collision_threshold_) {
-            stash_.insert(key);
-            ++stash_count_;
+        size_t collisions = _primary.count_collisions(key);
+        if (collisions >= _collision_threshold) {
+            // High collision — try stash first
+            if (!_stash.insert(key)) {
+                // Stash full, fall back to primary
+                _primary.insert(key);
+            } else {
+                ++_stash_count;
+            }
         } else {
-            primary_.insert(key);
+            _primary.insert(key);
         }
     }
 
-    bool query(const Key& key) const {
-        return primary_.query(key) || stash_.query(key);
+    ProbBool query(const Key& key) const {
+        bool in_stash = _stash.query(key);
+        bool in_primary = _primary.query(key);
+
+        if (_mode == StashMode::Positive) {
+            // Stash holds "definitely yes" keys.
+            if (in_stash) return ProbBool::True;
+            if (in_primary) return ProbBool::Maybe;
+            return ProbBool::False;
+        } else {
+            // Stash holds "definitely no" keys.
+            if (in_stash) return ProbBool::False;
+            if (in_primary) return ProbBool::Maybe;
+            return ProbBool::False;
+        }
     }
 
-    size_t primary_bits() const { return primary_.num_bits(); }
-    size_t stash_bits() const { return stash_.num_bits(); }
-    size_t total_bits() const { return primary_.num_bits() + stash_.num_bits(); }
-    size_t collision_threshold() const { return collision_threshold_; }
-    size_t stash_count() const { return stash_count_; }
+    // Convenience: returns true if query is True or Maybe.
+    bool query_bool(const Key& key) const { return is_positive(query(key)); }
+
+    size_t primary_bits() const { return _primary.num_bits(); }
+    size_t stash_bits() const { return _stash.size_bits(); }
+    size_t total_bits() const { return primary_bits() + stash_bits(); }
+    size_t collision_threshold() const { return _collision_threshold; }
+    size_t stash_count() const { return _stash_count; }
+    StashMode mode() const { return _mode; }
+
+    const BloomFilter<Key, HashPolicy>& primary() const { return _primary; }
+    const Stash& stash() const { return _stash; }
 
    private:
-    BloomFilter<Key, HashPolicy> primary_;
-    BloomFilter<Key, HashPolicy> stash_;
-    size_t collision_threshold_;
-    size_t stash_count_ = 0;
+    BloomFilter<Key, HashPolicy> _primary;
+    Stash _stash;
+    size_t _collision_threshold;
+    StashMode _mode;
+    size_t _stash_count = 0;
 };
