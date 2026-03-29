@@ -15,8 +15,7 @@ class LinearProbingStash : public StashSet<LinearProbingStash<Key, HashPolicy>, 
    public:
     // capacity: max number of elements that can be stored.
     // Each slot stores a 64-bit fingerprint, so total bits = capacity * 64.
-    explicit LinearProbingStash(size_t capacity)
-        : _slots(capacity, kEmpty), _capacity(capacity) {}
+    explicit LinearProbingStash(size_t capacity) : _slots(capacity, kEmpty), _capacity(capacity) {}
 
     bool do_insert(const Key& key) {
         if (_count >= _capacity) {

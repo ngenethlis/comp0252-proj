@@ -6,6 +6,7 @@
 #include "bloom_filter.h"
 #include "bloom_filter_stash.h"
 #include "linear_probing_stash.h"
+#include "partitioned_bloom_filter.h"
 #include "prob_bool.h"
 #include "stash_set.h"
 #include "stashed_bloom_filter.h"
@@ -16,26 +17,26 @@
 static int tests_passed = 0;
 static int tests_failed = 0;
 
-#define TEST(name)                                              \
-    static void test_##name();                                  \
-    struct Register_##name {                                    \
-        Register_##name() { test_##name(); }                    \
-    } register_##name;                                          \
+#define TEST(name)                           \
+    static void test_##name();               \
+    struct Register_##name {                 \
+        Register_##name() { test_##name(); } \
+    } register_##name;                       \
     static void test_##name()
 
-#define ASSERT_TRUE(expr)                                                              \
-    do {                                                                               \
-        if (!(expr)) {                                                                 \
-            printf("  FAIL: %s:%d: %s\n", __FILE__, __LINE__, #expr);                  \
-            ++tests_failed;                                                            \
-            return;                                                                    \
-        }                                                                              \
+#define ASSERT_TRUE(expr)                                             \
+    do {                                                              \
+        if (!(expr)) {                                                \
+            printf("  FAIL: %s:%d: %s\n", __FILE__, __LINE__, #expr); \
+            ++tests_failed;                                           \
+            return;                                                   \
+        }                                                             \
     } while (0)
 
-#define PASS(name)                       \
-    do {                                 \
-        printf("  PASS: %s\n", (name));  \
-        ++tests_passed;                  \
+#define PASS(name)                      \
+    do {                                \
+        printf("  PASS: %s\n", (name)); \
+        ++tests_passed;                 \
     } while (0)
 
 // ===========================================================================
@@ -115,6 +116,58 @@ TEST(bloom_single_bit) {
     ASSERT_TRUE(bf.query(42));
     ASSERT_TRUE(bf.bits_set() == 1);
     PASS("bloom_single_bit");
+}
+
+// ===========================================================================
+// PartitionedBloomFilter tests
+// ===========================================================================
+
+TEST(partitioned_bf_no_false_negatives) {
+    PartitionedBloomFilter pbf(10000, 7);
+    for (uint64_t i = 0; i < 500; ++i) pbf.insert(i);
+    for (uint64_t i = 0; i < 500; ++i) {
+        ASSERT_TRUE(pbf.query(i));
+    }
+    PASS("partitioned_bf_no_false_negatives");
+}
+
+TEST(partitioned_bf_false_positive_rate) {
+    PartitionedBloomFilter pbf(10000, 7);
+    for (uint64_t i = 0; i < 500; ++i) pbf.insert(i);
+
+    size_t fp = 0;
+    const size_t test_count = 10000;
+    for (uint64_t i = 1000000; i < 1000000 + test_count; ++i) {
+        if (pbf.query(i)) ++fp;
+    }
+    double fpr = static_cast<double>(fp) / test_count;
+    printf("    PartitionedBF FPR: %.4f\n", fpr);
+    ASSERT_TRUE(fpr < 0.05);
+    PASS("partitioned_bf_false_positive_rate");
+}
+
+TEST(partitioned_bf_empty_query) {
+    PartitionedBloomFilter pbf(1000, 5);
+    for (uint64_t i = 0; i < 100; ++i) {
+        ASSERT_TRUE(!pbf.query(i));
+    }
+    PASS("partitioned_bf_empty_query");
+}
+
+TEST(partitioned_bf_count_collisions) {
+    PartitionedBloomFilter pbf(10000, 7);
+    ASSERT_TRUE(pbf.count_collisions(42) == 0);
+    pbf.insert(42);
+    ASSERT_TRUE(pbf.count_collisions(42) == 7);
+    PASS("partitioned_bf_count_collisions");
+}
+
+TEST(partitioned_bf_partition_size) {
+    PartitionedBloomFilter pbf(7000, 7);
+    ASSERT_TRUE(pbf.partition_size() == 1000);
+    ASSERT_TRUE(pbf.num_bits() == 7000);
+    ASSERT_TRUE(pbf.num_hashes() == 7);
+    PASS("partitioned_bf_partition_size");
 }
 
 // ===========================================================================
@@ -240,8 +293,7 @@ TEST(stashed_bf_pos_false_positive_rate) {
         if (sbf.query_bool(i)) ++fp;
     }
     double fpr = static_cast<double>(fp) / test_count;
-    printf("    StashedBF (BF stash, pos) FPR: %.4f (stash_count: %zu)\n", fpr,
-           sbf.stash_count());
+    printf("    StashedBF (BF stash, pos) FPR: %.4f (stash_count: %zu)\n", fpr, sbf.stash_count());
     PASS("stashed_bf_pos_false_positive_rate");
 }
 
@@ -295,8 +347,7 @@ TEST(stashed_lp_pos_false_positive_rate) {
         if (sbf.query_bool(i)) ++fp;
     }
     double fpr = static_cast<double>(fp) / test_count;
-    printf("    StashedBF (LP stash, pos) FPR: %.4f (stash_count: %zu)\n", fpr,
-           sbf.stash_count());
+    printf("    StashedBF (LP stash, pos) FPR: %.4f (stash_count: %zu)\n", fpr, sbf.stash_count());
     PASS("stashed_lp_pos_false_positive_rate");
 }
 
@@ -334,6 +385,23 @@ TEST(stashed_bf_accessors) {
     ASSERT_TRUE(sbf.stash_count() == 0);
     ASSERT_TRUE(sbf.mode() == StashMode::Positive);
     PASS("stashed_bf_accessors");
+}
+
+TEST(stashed_bf_same_total_bits_as_plain_bf) {
+    const size_t total_bits = 10000;
+
+    BloomFilter bf(total_bits, 7);
+
+    BloomFilterStash<uint64_t> stash_bf(2000, 5);
+    StashedBloomFilter sbf_bf(8000, 7, std::move(stash_bf), 5);
+    ASSERT_TRUE(sbf_bf.total_bits() == bf.num_bits());
+
+    LinearProbingStash<uint64_t> stash_lp(125);  // 125 * 64 = 8000 bits
+    StashedBloomFilter<uint64_t, DefaultHashPolicy, LinearProbingStash<uint64_t>> sbf_lp(
+        2000, 7, std::move(stash_lp), 5);
+    ASSERT_TRUE(sbf_lp.total_bits() == bf.num_bits());
+
+    PASS("stashed_bf_same_total_bits_as_plain_bf");
 }
 
 TEST(stashed_bf_stash_fallback) {

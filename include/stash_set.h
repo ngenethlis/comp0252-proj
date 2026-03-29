@@ -15,9 +15,7 @@ class StashSet {
     bool insert(const Key& key) { return static_cast<Derived*>(this)->do_insert(key); }
 
     // Query whether a key is in the stash.
-    bool query(const Key& key) const {
-        return static_cast<const Derived*>(this)->do_query(key);
-    }
+    bool query(const Key& key) const { return static_cast<const Derived*>(this)->do_query(key); }
 
     // Number of bits this stash occupies.
     [[nodiscard]] size_t size_bits() const {

@@ -39,12 +39,18 @@ class StashedBloomFilter {
           _collision_threshold(collision_threshold),
           _mode(mode) {}
 
+    // Insert a positive element (known to be in the set).
+    // Positive mode: high-collision keys are diverted to stash.
+    // Negative mode: always goes directly to primary BF.
     void insert(const Key& key) {
+        if (_mode == StashMode::Negative) {
+            _primary.insert(key);
+            return;
+        }
+        // Positive mode: collision-threshold routing
         size_t collisions = _primary.count_collisions(key);
         if (collisions >= _collision_threshold) {
-            // High collision — try stash first
             if (!_stash.insert(key)) {
-                // Stash full, fall back to primary
                 _primary.insert(key);
             } else {
                 ++_stash_count;
@@ -52,6 +58,32 @@ class StashedBloomFilter {
         } else {
             _primary.insert(key);
         }
+    }
+
+    // Insert a known-negative key into the stash if it would be a false positive
+    // in the primary filter. Only meaningful in Negative mode.
+    // Returns true if the key was a false positive and was successfully stashed.
+    bool insert_negative(const Key& key) {
+        if (_primary.query(key)) {
+            if (_stash.insert(key)) {
+                ++_stash_count;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Populate the negative stash from a range of known-negative keys.
+    // Returns the number of false positives successfully stashed.
+    template <typename InputIt>
+    size_t populate_negative_stash(InputIt begin, InputIt end) {
+        size_t count = 0;
+        for (auto it = begin; it != end; ++it) {
+            if (insert_negative(*it)) {
+                ++count;
+            }
+        }
+        return count;
     }
 
     [[nodiscard]] ProbBool query(const Key& key) const {
