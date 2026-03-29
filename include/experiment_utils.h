@@ -111,6 +111,50 @@ double measure_fpr_stashed(const StashedBloomFilter<Key, HP, Stash>& filter,
 }
 
 // ---------------------------------------------------------------------------
+// ProbBool query statistics
+// ---------------------------------------------------------------------------
+
+struct QueryStats {
+    size_t true_count = 0;
+    size_t maybe_count = 0;
+    size_t false_count = 0;
+
+    [[nodiscard]] size_t total() const { return true_count + maybe_count + false_count; }
+
+    // Fraction of queries returning True (certain membership).
+    [[nodiscard]] double true_rate() const {
+        return total() > 0 ? static_cast<double>(true_count) / static_cast<double>(total()) : 0.0;
+    }
+
+    // Fraction of queries returning True or Maybe (any positive signal).
+    [[nodiscard]] double positive_rate() const {
+        size_t pos = true_count + maybe_count;
+        return total() > 0 ? static_cast<double>(pos) / static_cast<double>(total()) : 0.0;
+    }
+};
+
+// Count ProbBool outcomes from querying a stashed bloom filter.
+template <typename Key, typename HP, typename Stash>
+QueryStats count_query_results(const StashedBloomFilter<Key, HP, Stash>& filter,
+                               const std::vector<Key>& keys) {
+    QueryStats stats;
+    for (const auto& key : keys) {
+        switch (filter.query(key)) {
+            case ProbBool::True:
+                ++stats.true_count;
+                break;
+            case ProbBool::Maybe:
+                ++stats.maybe_count;
+                break;
+            case ProbBool::False:
+                ++stats.false_count;
+                break;
+        }
+    }
+    return stats;
+}
+
+// ---------------------------------------------------------------------------
 // File I/O helpers
 // ---------------------------------------------------------------------------
 
