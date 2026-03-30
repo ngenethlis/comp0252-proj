@@ -162,8 +162,8 @@ static void bench_query_positive() {
         // StashedBloomFilter + BF stash
         {
             BloomFilterStash<uint64_t> stash(stash_bits, kNumHashes);
-            StashedBloomFilter sbf(primary_bits, kNumHashes, std::move(stash),
-                                   collision_threshold, StashMode::Positive);
+            StashedBloomFilter sbf(primary_bits, kNumHashes, std::move(stash), collision_threshold,
+                                   StashMode::Positive);
             for (uint64_t k : keys) {
                 sbf.insert(k);
             }
@@ -240,8 +240,8 @@ static void bench_query_negative() {
         // StashedBloomFilter + BF stash
         {
             BloomFilterStash<uint64_t> stash(stash_bits, kNumHashes);
-            StashedBloomFilter sbf(primary_bits, kNumHashes, std::move(stash),
-                                   collision_threshold, StashMode::Positive);
+            StashedBloomFilter sbf(primary_bits, kNumHashes, std::move(stash), collision_threshold,
+                                   StashMode::Positive);
             for (uint64_t k : keys) {
                 sbf.insert(k);
             }

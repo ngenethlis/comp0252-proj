@@ -52,10 +52,11 @@ static void csv_row(Args&&... args) {
 // ---------------------------------------------------------------------------
 static void run_exp1_certainty() {
     std::cerr << "=== Exp 1: Certainty vs collision threshold ===\n";
-    csv_header("experiment,stash_type,threshold,"
-               "pos_true,pos_maybe,pos_false,certainty_rate,"
-               "neg_true,neg_maybe,neg_false,fpr,false_certainty_rate,"
-               "stash_count");
+    csv_header(
+        "experiment,stash_type,threshold,"
+        "pos_true,pos_maybe,pos_false,certainty_rate,"
+        "neg_true,neg_maybe,neg_false,fpr,false_certainty_rate,"
+        "stash_count");
 
     auto data = generate_data(kNumInserts, 0, kNumNeg, kSeed);
     size_t stash_bits = kTotalBits / 5;
@@ -125,8 +126,9 @@ static void run_exp1_certainty() {
 // ---------------------------------------------------------------------------
 static void run_exp2_negative_stash() {
     std::cerr << "=== Exp 2: Negative stash FPR reduction ===\n";
-    csv_header("experiment,stash_type,scenario,stash_fraction,"
-               "baseline_fpr,stashed_fpr,fpr_reduction_pct,stash_count");
+    csv_header(
+        "experiment,stash_type,scenario,stash_fraction,"
+        "baseline_fpr,stashed_fpr,fpr_reduction_pct,stash_count");
 
     auto data = generate_data(kNumInserts, kNumNeg, kNumNeg, kSeed);
 
@@ -152,8 +154,7 @@ static void run_exp2_negative_stash() {
         }
 
         // --- BF stash negative ---
-        auto run_bf_neg = [&](const std::string& scenario,
-                              const std::vector<uint64_t>& scan_set) {
+        auto run_bf_neg = [&](const std::string& scenario, const std::vector<uint64_t>& scan_set) {
             BloomFilterStash<uint64_t> stash(stash_bits, kNumHashes);
             StashedBloomFilter sbf(primary_bits, kNumHashes, std::move(stash), 0,
                                    StashMode::Negative);
@@ -162,15 +163,13 @@ static void run_exp2_negative_stash() {
             }
             sbf.populate_negative_stash(scan_set.begin(), scan_set.end());
             double fpr = measure_fpr_stashed(sbf, data.test_negatives);
-            double reduction =
-                baseline_fpr > 0 ? (1.0 - fpr / baseline_fpr) * 100.0 : 0.0;
+            double reduction = baseline_fpr > 0 ? (1.0 - fpr / baseline_fpr) * 100.0 : 0.0;
             csv_row("exp2", "bf_stash", scenario, frac, baseline_fpr, fpr, reduction,
                     sbf.stash_count());
         };
 
         // --- LP stash negative ---
-        auto run_lp_neg = [&](const std::string& scenario,
-                              const std::vector<uint64_t>& scan_set) {
+        auto run_lp_neg = [&](const std::string& scenario, const std::vector<uint64_t>& scan_set) {
             LinearProbingStash<uint64_t> stash(lp_capacity);
             StashedBloomFilter<uint64_t, DefaultHashPolicy, LinearProbingStash<uint64_t>> sbf(
                 primary_bits, kNumHashes, std::move(stash), 0, StashMode::Negative);
@@ -179,8 +178,7 @@ static void run_exp2_negative_stash() {
             }
             sbf.populate_negative_stash(scan_set.begin(), scan_set.end());
             double fpr = measure_fpr_stashed(sbf, data.test_negatives);
-            double reduction =
-                baseline_fpr > 0 ? (1.0 - fpr / baseline_fpr) * 100.0 : 0.0;
+            double reduction = baseline_fpr > 0 ? (1.0 - fpr / baseline_fpr) * 100.0 : 0.0;
             csv_row("exp2", "lp_stash", scenario, frac, baseline_fpr, fpr, reduction,
                     sbf.stash_count());
         };
@@ -223,8 +221,7 @@ static void run_exp3_load() {
             for (uint64_t k : data.positives) {
                 bf.insert(k);
             }
-            csv_row("exp3", "bloom_filter", n, measure_fpr(bf, data.test_negatives), 0.0, 0.0,
-                    0);
+            csv_row("exp3", "bloom_filter", n, measure_fpr(bf, data.test_negatives), 0.0, 0.0, 0);
         }
         // Partitioned BF
         {
@@ -232,14 +229,14 @@ static void run_exp3_load() {
             for (uint64_t k : data.positives) {
                 pbf.insert(k);
             }
-            csv_row("exp3", "partitioned_bf", n, measure_fpr(pbf, data.test_negatives), 0.0,
-                    0.0, 0);
+            csv_row("exp3", "partitioned_bf", n, measure_fpr(pbf, data.test_negatives), 0.0, 0.0,
+                    0);
         }
         // Stashed BF + BF stash + positive
         {
             BloomFilterStash<uint64_t> stash(stash_bits, kNumHashes);
-            StashedBloomFilter sbf(primary_bits, kNumHashes, std::move(stash),
-                                   collision_threshold, StashMode::Positive);
+            StashedBloomFilter sbf(primary_bits, kNumHashes, std::move(stash), collision_threshold,
+                                   StashMode::Positive);
             for (uint64_t k : data.positives) {
                 sbf.insert(k);
             }
@@ -265,16 +262,14 @@ static void run_exp3_load() {
         // Stashed BF + BF stash + negative (practical: scan disjoint set)
         {
             BloomFilterStash<uint64_t> stash(stash_bits, kNumHashes);
-            StashedBloomFilter sbf(primary_bits, kNumHashes, std::move(stash),
-                                   collision_threshold, StashMode::Negative);
+            StashedBloomFilter sbf(primary_bits, kNumHashes, std::move(stash), collision_threshold,
+                                   StashMode::Negative);
             for (uint64_t k : data.positives) {
                 sbf.insert(k);
             }
-            sbf.populate_negative_stash(data.stash_negatives.begin(),
-                                        data.stash_negatives.end());
-            csv_row("exp3", "stashed_bf_neg", n,
-                    measure_fpr_stashed(sbf, data.test_negatives), 0.0, 0.0,
-                    sbf.stash_count());
+            sbf.populate_negative_stash(data.stash_negatives.begin(), data.stash_negatives.end());
+            csv_row("exp3", "stashed_bf_neg", n, measure_fpr_stashed(sbf, data.test_negatives), 0.0,
+                    0.0, sbf.stash_count());
         }
         // Stashed BF + LP stash + negative (practical: scan disjoint set)
         {
@@ -285,11 +280,9 @@ static void run_exp3_load() {
             for (uint64_t k : data.positives) {
                 sbf.insert(k);
             }
-            sbf.populate_negative_stash(data.stash_negatives.begin(),
-                                        data.stash_negatives.end());
-            csv_row("exp3", "stashed_lp_neg", n,
-                    measure_fpr_stashed(sbf, data.test_negatives), 0.0, 0.0,
-                    sbf.stash_count());
+            sbf.populate_negative_stash(data.stash_negatives.begin(), data.stash_negatives.end());
+            csv_row("exp3", "stashed_lp_neg", n, measure_fpr_stashed(sbf, data.test_negatives), 0.0,
+                    0.0, sbf.stash_count());
         }
     }
     std::cerr << "  done.\n";
@@ -303,8 +296,9 @@ static void run_exp3_load() {
 // ---------------------------------------------------------------------------
 static void run_exp4_stash_fraction() {
     std::cerr << "=== Exp 4: Stash fraction sweep ===\n";
-    csv_header("experiment,stash_type,stash_mode,stash_fraction,"
-               "fpr,certainty_rate,false_certainty_rate,stash_count");
+    csv_header(
+        "experiment,stash_type,stash_mode,stash_fraction,"
+        "fpr,certainty_rate,false_certainty_rate,stash_count");
 
     auto data = generate_data(kNumInserts, kNumNeg, kNumNeg, kSeed);
     size_t collision_threshold = 3;
@@ -315,8 +309,7 @@ static void run_exp4_stash_fraction() {
         for (uint64_t k : data.positives) {
             bf.insert(k);
         }
-        csv_row("exp4", "baseline_bf", "-", 0.0,
-                measure_fpr(bf, data.test_negatives), 0.0, 0.0, 0);
+        csv_row("exp4", "baseline_bf", "-", 0.0, measure_fpr(bf, data.test_negatives), 0.0, 0.0, 0);
     }
 
     for (int frac_pct = 5; frac_pct <= 50; frac_pct += 5) {
@@ -334,29 +327,27 @@ static void run_exp4_stash_fraction() {
         // BF stash — positive
         {
             BloomFilterStash<uint64_t> stash(stash_bits, kNumHashes);
-            StashedBloomFilter sbf(primary_bits, kNumHashes, std::move(stash),
-                                   collision_threshold, StashMode::Positive);
+            StashedBloomFilter sbf(primary_bits, kNumHashes, std::move(stash), collision_threshold,
+                                   StashMode::Positive);
             for (uint64_t k : data.positives) {
                 sbf.insert(k);
             }
             auto pos = count_query_results(sbf, data.positives);
             auto neg = count_query_results(sbf, data.test_negatives);
-            csv_row("exp4", "bf_stash", "positive", frac, neg.positive_rate(),
-                    pos.true_rate(), neg.true_rate(), sbf.stash_count());
+            csv_row("exp4", "bf_stash", "positive", frac, neg.positive_rate(), pos.true_rate(),
+                    neg.true_rate(), sbf.stash_count());
         }
         // BF stash — negative
         {
             BloomFilterStash<uint64_t> stash(stash_bits, kNumHashes);
-            StashedBloomFilter sbf(primary_bits, kNumHashes, std::move(stash),
-                                   collision_threshold, StashMode::Negative);
+            StashedBloomFilter sbf(primary_bits, kNumHashes, std::move(stash), collision_threshold,
+                                   StashMode::Negative);
             for (uint64_t k : data.positives) {
                 sbf.insert(k);
             }
-            sbf.populate_negative_stash(data.stash_negatives.begin(),
-                                        data.stash_negatives.end());
+            sbf.populate_negative_stash(data.stash_negatives.begin(), data.stash_negatives.end());
             csv_row("exp4", "bf_stash", "negative", frac,
-                    measure_fpr_stashed(sbf, data.test_negatives), 0.0, 0.0,
-                    sbf.stash_count());
+                    measure_fpr_stashed(sbf, data.test_negatives), 0.0, 0.0, sbf.stash_count());
         }
         // LP stash — positive
         {
@@ -369,8 +360,8 @@ static void run_exp4_stash_fraction() {
             }
             auto pos = count_query_results(sbf, data.positives);
             auto neg = count_query_results(sbf, data.test_negatives);
-            csv_row("exp4", "lp_stash", "positive", frac, neg.positive_rate(),
-                    pos.true_rate(), neg.true_rate(), sbf.stash_count());
+            csv_row("exp4", "lp_stash", "positive", frac, neg.positive_rate(), pos.true_rate(),
+                    neg.true_rate(), sbf.stash_count());
         }
         // LP stash — negative
         {
@@ -381,11 +372,9 @@ static void run_exp4_stash_fraction() {
             for (uint64_t k : data.positives) {
                 sbf.insert(k);
             }
-            sbf.populate_negative_stash(data.stash_negatives.begin(),
-                                        data.stash_negatives.end());
+            sbf.populate_negative_stash(data.stash_negatives.begin(), data.stash_negatives.end());
             csv_row("exp4", "lp_stash", "negative", frac,
-                    measure_fpr_stashed(sbf, data.test_negatives), 0.0, 0.0,
-                    sbf.stash_count());
+                    measure_fpr_stashed(sbf, data.test_negatives), 0.0, 0.0, sbf.stash_count());
         }
     }
     std::cerr << "  done.\n";
@@ -408,10 +397,11 @@ static void run_exp5_passwords(const std::string& password_file) {
     }
     std::cerr << "  loaded " << passwords.size() << " passwords from " << password_file << "\n";
 
-    csv_header("experiment,filter_type,n_passwords,total_bits,"
-               "pos_true,pos_maybe,pos_false,certainty_rate,"
-               "neg_true,neg_maybe,neg_false,fpr,false_certainty_rate,"
-               "stash_count");
+    csv_header(
+        "experiment,filter_type,n_passwords,total_bits,"
+        "pos_true,pos_maybe,pos_false,certainty_rate,"
+        "neg_true,neg_maybe,neg_false,fpr,false_certainty_rate,"
+        "stash_count");
 
     size_t n = passwords.size();
     size_t total_bits = n * 20;
@@ -441,8 +431,7 @@ static void run_exp5_passwords(const std::string& password_file) {
             }
         }
         double fpr = measure_fpr(bf, negatives);
-        csv_row("exp5", "bloom_filter", n, total_bits, 0, pos_maybe, 0, 0.0, 0, 0, 0, fpr,
-                0.0, 0);
+        csv_row("exp5", "bloom_filter", n, total_bits, 0, pos_maybe, 0, 0.0, 0, 0, 0, fpr, 0.0, 0);
     }
     // Partitioned BF
     {
@@ -457,8 +446,8 @@ static void run_exp5_passwords(const std::string& password_file) {
             }
         }
         double fpr = measure_fpr(pbf, negatives);
-        csv_row("exp5", "partitioned_bf", n, total_bits, 0, pos_maybe, 0, 0.0, 0, 0, 0, fpr,
-                0.0, 0);
+        csv_row("exp5", "partitioned_bf", n, total_bits, 0, pos_maybe, 0, 0.0, 0, 0, 0, fpr, 0.0,
+                0);
     }
     // Stashed BF + BF stash + positive
     {
@@ -471,23 +460,22 @@ static void run_exp5_passwords(const std::string& password_file) {
         auto pos = count_query_results(sbf, passwords);
         auto neg = count_query_results(sbf, negatives);
         csv_row("exp5", "stashed_bf_pos", n, total_bits, pos.true_count, pos.maybe_count,
-                pos.false_count, pos.true_rate(), neg.true_count, neg.maybe_count,
-                neg.false_count, neg.positive_rate(), neg.true_rate(), sbf.stash_count());
+                pos.false_count, pos.true_rate(), neg.true_count, neg.maybe_count, neg.false_count,
+                neg.positive_rate(), neg.true_rate(), sbf.stash_count());
     }
     // Stashed BF + LP stash + positive
     {
         LinearProbingStash<std::string> stash(lp_capacity);
         StashedBloomFilter<std::string, DefaultHashPolicy, LinearProbingStash<std::string>> sbf(
-            primary_bits, kNumHashes, std::move(stash), collision_threshold,
-            StashMode::Positive);
+            primary_bits, kNumHashes, std::move(stash), collision_threshold, StashMode::Positive);
         for (const auto& pw : passwords) {
             sbf.insert(pw);
         }
         auto pos = count_query_results(sbf, passwords);
         auto neg = count_query_results(sbf, negatives);
         csv_row("exp5", "stashed_lp_pos", n, total_bits, pos.true_count, pos.maybe_count,
-                pos.false_count, pos.true_rate(), neg.true_count, neg.maybe_count,
-                neg.false_count, neg.positive_rate(), neg.true_rate(), sbf.stash_count());
+                pos.false_count, pos.true_rate(), neg.true_count, neg.maybe_count, neg.false_count,
+                neg.positive_rate(), neg.true_rate(), sbf.stash_count());
     }
     // Stashed BF + BF stash + negative
     {
@@ -501,15 +489,14 @@ static void run_exp5_passwords(const std::string& password_file) {
         auto pos = count_query_results(sbf, passwords);
         auto neg = count_query_results(sbf, negatives);
         csv_row("exp5", "stashed_bf_neg", n, total_bits, pos.true_count, pos.maybe_count,
-                pos.false_count, pos.true_rate(), neg.true_count, neg.maybe_count,
-                neg.false_count, neg.positive_rate(), neg.true_rate(), sbf.stash_count());
+                pos.false_count, pos.true_rate(), neg.true_count, neg.maybe_count, neg.false_count,
+                neg.positive_rate(), neg.true_rate(), sbf.stash_count());
     }
     // Stashed BF + LP stash + negative
     {
         LinearProbingStash<std::string> stash(lp_capacity);
         StashedBloomFilter<std::string, DefaultHashPolicy, LinearProbingStash<std::string>> sbf(
-            primary_bits, kNumHashes, std::move(stash), collision_threshold,
-            StashMode::Negative);
+            primary_bits, kNumHashes, std::move(stash), collision_threshold, StashMode::Negative);
         for (const auto& pw : passwords) {
             sbf.insert(pw);
         }
@@ -517,8 +504,8 @@ static void run_exp5_passwords(const std::string& password_file) {
         auto pos = count_query_results(sbf, passwords);
         auto neg = count_query_results(sbf, negatives);
         csv_row("exp5", "stashed_lp_neg", n, total_bits, pos.true_count, pos.maybe_count,
-                pos.false_count, pos.true_rate(), neg.true_count, neg.maybe_count,
-                neg.false_count, neg.positive_rate(), neg.true_rate(), sbf.stash_count());
+                pos.false_count, pos.true_rate(), neg.true_count, neg.maybe_count, neg.false_count,
+                neg.positive_rate(), neg.true_rate(), sbf.stash_count());
     }
     std::cerr << "  done.\n";
 }

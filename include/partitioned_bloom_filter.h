@@ -13,9 +13,7 @@ template <typename Key = uint64_t, typename HashPolicy = DefaultHashPolicy>
 class PartitionedBloomFilter {
    public:
     PartitionedBloomFilter(size_t num_bits, size_t num_hashes)
-        : _bits(num_bits, false),
-          _num_hashes(num_hashes),
-          _partition_size(num_bits / num_hashes) {}
+        : _bits(num_bits, false), _num_hashes(num_hashes), _partition_size(num_bits / num_hashes) {}
 
     void insert(const Key& key) {
         auto [h1, h2] = HashPolicy::hash_pair(key);

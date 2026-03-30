@@ -27,7 +27,7 @@ inline std::vector<uint64_t> generate_uniform_keys(size_t n, uint64_t seed, uint
 // Generate n keys from a Zipf distribution with exponent s over ranks [1, max_rank].
 // Uses inverse CDF table lookup.
 inline std::vector<uint64_t> generate_zipf_keys(size_t n, double s, uint64_t max_rank,
-                                                 uint64_t seed) {
+                                                uint64_t seed) {
     // Build CDF
     std::vector<double> cdf(max_rank + 1, 0.0);
     double sum = 0.0;
@@ -65,13 +65,13 @@ inline std::vector<uint64_t> generate_zipf_keys(size_t n, double s, uint64_t max
 struct DataSplit {
     std::vector<uint64_t> positives;        // keys to insert into the filter
     std::vector<uint64_t> stash_negatives;  // known negatives for populating negative stash
-    std::vector<uint64_t> test_negatives;   // known negatives for measuring FPR (disjoint from above)
+    std::vector<uint64_t>
+        test_negatives;  // known negatives for measuring FPR (disjoint from above)
 };
 
 // Generate three non-overlapping key sets using different seed offsets.
 // Uses high bits to separate ranges, so overlap is astronomically unlikely.
-inline DataSplit generate_data(size_t n_pos, size_t n_stash_neg, size_t n_test_neg,
-                               uint64_t seed) {
+inline DataSplit generate_data(size_t n_pos, size_t n_stash_neg, size_t n_test_neg, uint64_t seed) {
     DataSplit data;
     data.positives = generate_uniform_keys(n_pos, seed, 0);
     data.stash_negatives = generate_uniform_keys(n_stash_neg, seed + 1, 1ULL << 62);
