@@ -18,3 +18,30 @@ trial the performance of these approaches in a real-world scenario via
 attempting to make a breached password querier, as this allows both for heavy
 hitter scenarios (e.g. with popular passwords) and due to the classification as
 deterministically yes, deterministically no, or maybe being useful.
+
+## Current experimental findings vs a standard Bloom filter
+
+### Where stashed Bloom filter can be better
+
+- **Positive stash mode can increase certainty for known positives**: some positive
+  queries return `True` (certain) instead of only `Maybe`.
+- This can be useful when downstream logic benefits from a "certain hit" signal
+  for a subset of inserted keys.
+
+### Where stashed Bloom filter is worse
+
+- **As a general FPR optimizer, it is usually worse than plain BF** at equal total
+  bits: moving bits from the primary Bloom filter into a stash increases primary
+  false positives in practical settings.
+- **Negative stash mode can introduce false negatives** (especially at high load,
+  when a probabilistic stash is used and becomes saturated).
+- The strong "oracle" negative-stash results are an **upper bound only** and rely
+  on pre-scanning the evaluation queries; they are not practical generalization
+  results.
+
+### Practical takeaway
+
+Use plain Bloom filter if your objective is the classic one: **no false negatives
+and best overall FPR for a fixed bit budget**. Use stashed variants only when you
+explicitly want the extra certainty semantics (`True` vs `Maybe`) and can accept
+the associated trade-offs.

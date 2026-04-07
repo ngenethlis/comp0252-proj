@@ -128,18 +128,26 @@ static void run_exp2_negative_stash() {
     std::cerr << "=== Exp 2: Negative stash FPR reduction ===\n";
     csv_header(
         "experiment,stash_type,scenario,stash_fraction,"
-        "baseline_fpr,stashed_fpr,fpr_reduction_pct,stash_count");
+        "baseline_fpr,stashed_fpr,fpr_reduction_pct,false_negative_rate,stash_count");
 
     auto data = generate_data(kNumInserts, kNumNeg, kNumNeg, kSeed);
+    size_t practical_warmup_count = data.test_negatives.size() / 2;
+    std::vector<uint64_t> practical_scan(data.test_negatives.begin(),
+                                         data.test_negatives.begin() + practical_warmup_count);
+    std::vector<uint64_t> practical_eval(data.test_negatives.begin() + practical_warmup_count,
+                                         data.test_negatives.end());
+    if (practical_eval.empty()) {
+        practical_eval = data.test_negatives;
+    }
 
     // Baseline: plain BF with ALL bits
     BloomFilter<uint64_t> baseline_bf(kTotalBits, kNumHashes);
     for (uint64_t k : data.positives) {
         baseline_bf.insert(k);
     }
-    double baseline_fpr = measure_fpr(baseline_bf, data.test_negatives);
+    double baseline_fpr = measure_fpr(baseline_bf, practical_eval);
 
-    csv_row("exp2", "baseline_bf", "-", 0.0, baseline_fpr, baseline_fpr, 0.0, 0);
+    csv_row("exp2", "baseline_bf", "-", 0.0, baseline_fpr, baseline_fpr, 0.0, 0.0, 0);
 
     for (int frac_pct = 5; frac_pct <= 50; frac_pct += 5) {
         double frac = frac_pct / 100.0;
@@ -154,7 +162,8 @@ static void run_exp2_negative_stash() {
         }
 
         // --- BF stash negative ---
-        auto run_bf_neg = [&](const std::string& scenario, const std::vector<uint64_t>& scan_set) {
+        auto run_bf_neg = [&](const std::string& scenario, const std::vector<uint64_t>& scan_set,
+                              const std::vector<uint64_t>& eval_set) {
             BloomFilterStash<uint64_t> stash(stash_bits, kNumHashes);
             StashedBloomFilter sbf(primary_bits, kNumHashes, std::move(stash), 0,
                                    StashMode::Negative);
@@ -162,14 +171,20 @@ static void run_exp2_negative_stash() {
                 sbf.insert(k);
             }
             sbf.populate_negative_stash(scan_set.begin(), scan_set.end());
-            double fpr = measure_fpr_stashed(sbf, data.test_negatives);
+            double fpr = measure_fpr_stashed(sbf, eval_set);
+            auto pos = count_query_results(sbf, data.positives);
+            double fnr = data.positives.empty()
+                             ? 0.0
+                             : static_cast<double>(pos.false_count) /
+                                   static_cast<double>(data.positives.size());
             double reduction = baseline_fpr > 0 ? (1.0 - fpr / baseline_fpr) * 100.0 : 0.0;
-            csv_row("exp2", "bf_stash", scenario, frac, baseline_fpr, fpr, reduction,
+            csv_row("exp2", "bf_stash", scenario, frac, baseline_fpr, fpr, reduction, fnr,
                     sbf.stash_count());
         };
 
         // --- LP stash negative ---
-        auto run_lp_neg = [&](const std::string& scenario, const std::vector<uint64_t>& scan_set) {
+        auto run_lp_neg = [&](const std::string& scenario, const std::vector<uint64_t>& scan_set,
+                              const std::vector<uint64_t>& eval_set) {
             LinearProbingStash<uint64_t> stash(lp_capacity);
             StashedBloomFilter<uint64_t, DefaultHashPolicy, LinearProbingStash<uint64_t>> sbf(
                 primary_bits, kNumHashes, std::move(stash), 0, StashMode::Negative);
@@ -177,19 +192,24 @@ static void run_exp2_negative_stash() {
                 sbf.insert(k);
             }
             sbf.populate_negative_stash(scan_set.begin(), scan_set.end());
-            double fpr = measure_fpr_stashed(sbf, data.test_negatives);
+            double fpr = measure_fpr_stashed(sbf, eval_set);
+            auto pos = count_query_results(sbf, data.positives);
+            double fnr = data.positives.empty()
+                             ? 0.0
+                             : static_cast<double>(pos.false_count) /
+                                   static_cast<double>(data.positives.size());
             double reduction = baseline_fpr > 0 ? (1.0 - fpr / baseline_fpr) * 100.0 : 0.0;
-            csv_row("exp2", "lp_stash", scenario, frac, baseline_fpr, fpr, reduction,
+            csv_row("exp2", "lp_stash", scenario, frac, baseline_fpr, fpr, reduction, fnr,
                     sbf.stash_count());
         };
 
-        // Practical: scan disjoint negatives
-        run_bf_neg("practical", data.stash_negatives);
-        run_lp_neg("practical", data.stash_negatives);
+        // Practical: warm-up on first half, evaluate on second half.
+        run_bf_neg("practical", practical_scan, practical_eval);
+        run_lp_neg("practical", practical_scan, practical_eval);
 
         // Oracle: scan the test set itself (best case)
-        run_bf_neg("oracle", data.test_negatives);
-        run_lp_neg("oracle", data.test_negatives);
+        run_bf_neg("oracle", practical_eval, practical_eval);
+        run_lp_neg("oracle", practical_eval, practical_eval);
     }
     std::cerr << "  done.\n";
 }
@@ -202,7 +222,9 @@ static void run_exp2_negative_stash() {
 // ---------------------------------------------------------------------------
 static void run_exp3_load() {
     std::cerr << "=== Exp 3: FPR vs load factor ===\n";
-    csv_header("experiment,filter_type,n,fpr,certainty_rate,false_certainty_rate,stash_count");
+    csv_header(
+        "experiment,filter_type,n,fpr,certainty_rate,false_certainty_rate,false_negative_rate,"
+        "stash_count");
 
     size_t stash_bits = kTotalBits / 5;
     size_t primary_bits = kTotalBits - stash_bits;
@@ -221,7 +243,8 @@ static void run_exp3_load() {
             for (uint64_t k : data.positives) {
                 bf.insert(k);
             }
-            csv_row("exp3", "bloom_filter", n, measure_fpr(bf, data.test_negatives), 0.0, 0.0, 0);
+            csv_row("exp3", "bloom_filter", n, measure_fpr(bf, data.test_negatives), 0.0, 0.0, 0.0,
+                    0);
         }
         // Partitioned BF
         {
@@ -230,7 +253,7 @@ static void run_exp3_load() {
                 pbf.insert(k);
             }
             csv_row("exp3", "partitioned_bf", n, measure_fpr(pbf, data.test_negatives), 0.0, 0.0,
-                    0);
+                    0.0, 0);
         }
         // Stashed BF + BF stash + positive
         {
@@ -243,7 +266,7 @@ static void run_exp3_load() {
             auto pos = count_query_results(sbf, data.positives);
             auto neg = count_query_results(sbf, data.test_negatives);
             csv_row("exp3", "stashed_bf_pos", n, neg.positive_rate(), pos.true_rate(),
-                    neg.true_rate(), sbf.stash_count());
+                    neg.true_rate(), 0.0, sbf.stash_count());
         }
         // Stashed BF + LP stash + positive
         {
@@ -257,7 +280,7 @@ static void run_exp3_load() {
             auto pos = count_query_results(sbf, data.positives);
             auto neg = count_query_results(sbf, data.test_negatives);
             csv_row("exp3", "stashed_lp_pos", n, neg.positive_rate(), pos.true_rate(),
-                    neg.true_rate(), sbf.stash_count());
+                    neg.true_rate(), 0.0, sbf.stash_count());
         }
         // Stashed BF + BF stash + negative (practical: scan disjoint set)
         {
@@ -268,8 +291,13 @@ static void run_exp3_load() {
                 sbf.insert(k);
             }
             sbf.populate_negative_stash(data.stash_negatives.begin(), data.stash_negatives.end());
+            auto pos = count_query_results(sbf, data.positives);
+            double fnr = data.positives.empty()
+                             ? 0.0
+                             : static_cast<double>(pos.false_count) /
+                                   static_cast<double>(data.positives.size());
             csv_row("exp3", "stashed_bf_neg", n, measure_fpr_stashed(sbf, data.test_negatives), 0.0,
-                    0.0, sbf.stash_count());
+                    0.0, fnr, sbf.stash_count());
         }
         // Stashed BF + LP stash + negative (practical: scan disjoint set)
         {
@@ -281,8 +309,13 @@ static void run_exp3_load() {
                 sbf.insert(k);
             }
             sbf.populate_negative_stash(data.stash_negatives.begin(), data.stash_negatives.end());
+            auto pos = count_query_results(sbf, data.positives);
+            double fnr = data.positives.empty()
+                             ? 0.0
+                             : static_cast<double>(pos.false_count) /
+                                   static_cast<double>(data.positives.size());
             csv_row("exp3", "stashed_lp_neg", n, measure_fpr_stashed(sbf, data.test_negatives), 0.0,
-                    0.0, sbf.stash_count());
+                    0.0, fnr, sbf.stash_count());
         }
     }
     std::cerr << "  done.\n";
@@ -298,7 +331,7 @@ static void run_exp4_stash_fraction() {
     std::cerr << "=== Exp 4: Stash fraction sweep ===\n";
     csv_header(
         "experiment,stash_type,stash_mode,stash_fraction,"
-        "fpr,certainty_rate,false_certainty_rate,stash_count");
+        "fpr,certainty_rate,false_certainty_rate,false_negative_rate,stash_count");
 
     auto data = generate_data(kNumInserts, kNumNeg, kNumNeg, kSeed);
     size_t collision_threshold = 3;
@@ -309,7 +342,8 @@ static void run_exp4_stash_fraction() {
         for (uint64_t k : data.positives) {
             bf.insert(k);
         }
-        csv_row("exp4", "baseline_bf", "-", 0.0, measure_fpr(bf, data.test_negatives), 0.0, 0.0, 0);
+        csv_row("exp4", "baseline_bf", "-", 0.0, measure_fpr(bf, data.test_negatives), 0.0, 0.0,
+                0.0, 0);
     }
 
     for (int frac_pct = 5; frac_pct <= 50; frac_pct += 5) {
@@ -335,7 +369,7 @@ static void run_exp4_stash_fraction() {
             auto pos = count_query_results(sbf, data.positives);
             auto neg = count_query_results(sbf, data.test_negatives);
             csv_row("exp4", "bf_stash", "positive", frac, neg.positive_rate(), pos.true_rate(),
-                    neg.true_rate(), sbf.stash_count());
+                    neg.true_rate(), 0.0, sbf.stash_count());
         }
         // BF stash — negative
         {
@@ -346,8 +380,14 @@ static void run_exp4_stash_fraction() {
                 sbf.insert(k);
             }
             sbf.populate_negative_stash(data.stash_negatives.begin(), data.stash_negatives.end());
+            auto pos = count_query_results(sbf, data.positives);
+            double fnr = data.positives.empty()
+                             ? 0.0
+                             : static_cast<double>(pos.false_count) /
+                                   static_cast<double>(data.positives.size());
             csv_row("exp4", "bf_stash", "negative", frac,
-                    measure_fpr_stashed(sbf, data.test_negatives), 0.0, 0.0, sbf.stash_count());
+                    measure_fpr_stashed(sbf, data.test_negatives), 0.0, 0.0, fnr,
+                    sbf.stash_count());
         }
         // LP stash — positive
         {
@@ -361,7 +401,7 @@ static void run_exp4_stash_fraction() {
             auto pos = count_query_results(sbf, data.positives);
             auto neg = count_query_results(sbf, data.test_negatives);
             csv_row("exp4", "lp_stash", "positive", frac, neg.positive_rate(), pos.true_rate(),
-                    neg.true_rate(), sbf.stash_count());
+                    neg.true_rate(), 0.0, sbf.stash_count());
         }
         // LP stash — negative
         {
@@ -373,8 +413,14 @@ static void run_exp4_stash_fraction() {
                 sbf.insert(k);
             }
             sbf.populate_negative_stash(data.stash_negatives.begin(), data.stash_negatives.end());
+            auto pos = count_query_results(sbf, data.positives);
+            double fnr = data.positives.empty()
+                             ? 0.0
+                             : static_cast<double>(pos.false_count) /
+                                   static_cast<double>(data.positives.size());
             csv_row("exp4", "lp_stash", "negative", frac,
-                    measure_fpr_stashed(sbf, data.test_negatives), 0.0, 0.0, sbf.stash_count());
+                    measure_fpr_stashed(sbf, data.test_negatives), 0.0, 0.0, fnr,
+                    sbf.stash_count());
         }
     }
     std::cerr << "  done.\n";

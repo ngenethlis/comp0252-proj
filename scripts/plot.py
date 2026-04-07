@@ -77,6 +77,10 @@ def plot_exp1():
     ax.legend()
     ax.set_ylim(bottom=0)
     ax.grid(True, alpha=0.3)
+    ax.text(0.02, 0.03,
+            "LP plateau at low thresholds is a capacity effect "
+            "(312-slot stash for this setup).",
+            transform=ax.transAxes, fontsize=8, color="#555555")
     savefig(fig, "exp1a_certainty_rate.png")
 
     # 1b: False certainty rate for negatives
@@ -135,11 +139,18 @@ def plot_exp2():
                     color=color_of(st), label=label_of(st))
         ax.set_xlabel("Stash fraction of total bits")
         ax.set_ylabel("FPR")
-        ax.set_title(f"Negative stash ({scenario})")
+        if scenario == "oracle":
+            ax.set_title("Negative stash (oracle upper bound)")
+        else:
+            ax.set_title("Negative stash (practical warm-up)")
         ax.legend()
         ax.grid(True, alpha=0.3)
     fig.suptitle("Exp 2: Negative stash FPR reduction", fontsize=13)
-    fig.tight_layout()
+    fig.text(0.5, 0.01,
+             "Practical uses first-half warm-up and second-half holdout. "
+             "Oracle scans the same holdout set (upper bound only).",
+             ha="center", fontsize=8, color="#555555")
+    fig.tight_layout(rect=[0, 0.04, 1, 1])
     savefig(fig, "exp2_negative_stash_fpr.png")
 
     # 2b: FPR reduction % (practical)
@@ -156,6 +167,24 @@ def plot_exp2():
     ax.legend()
     ax.grid(True, alpha=0.3)
     savefig(fig, "exp2b_fpr_reduction_practical.png")
+
+    # 2c: False-negative rate vs stash fraction (negative mode side effect)
+    if "false_negative_rate" in stash_df.columns:
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
+        for ax, scenario in zip(axes, ["practical", "oracle"]):
+            sub = stash_df[stash_df["scenario"] == scenario]
+            for st in ["bf_stash", "lp_stash"]:
+                s = sub[sub["stash_type"] == st]
+                ax.plot(s["stash_fraction"], s["false_negative_rate"], "o-",
+                        color=color_of(st), label=label_of(st))
+            ax.set_xlabel("Stash fraction of total bits")
+            ax.set_ylabel("False negative rate")
+            ax.set_title(f"False negatives ({scenario})")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+        fig.suptitle("Exp 2c: Negative stash false negatives", fontsize=13)
+        fig.tight_layout()
+        savefig(fig, "exp2c_false_negative_rate.png")
 
 
 # -------------------------------------------------------------------------
@@ -212,6 +241,20 @@ def plot_exp3():
     ax.grid(True, alpha=0.3)
     savefig(fig, "exp3c_false_certainty_vs_n.png")
 
+    # 3d: False-negative rate vs n (negative stash modes)
+    if "false_negative_rate" in df.columns:
+        fig, ax = plt.subplots(figsize=(7, 4))
+        for ft in ["stashed_bf_neg", "stashed_lp_neg"]:
+            sub = df[df["filter_type"] == ft]
+            ax.plot(sub["n"], sub["false_negative_rate"], "o-",
+                    color=color_of(ft), label=label_of(ft))
+        ax.set_xlabel("Number of inserted elements (n)")
+        ax.set_ylabel("False negative rate")
+        ax.set_title("Exp 3d: False negatives vs load (negative stash)")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        savefig(fig, "exp3d_false_negative_vs_n.png")
+
 
 # -------------------------------------------------------------------------
 # Exp 4: Stash fraction sweep
@@ -241,6 +284,10 @@ def plot_exp4():
     ax.set_title("Exp 4a: FPR vs stash fraction")
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
+    ax.text(0.02, 0.03,
+            "At this load the BF and LP negative-mode lines can overlap "
+            "because LP capacity is not yet the bottleneck.",
+            transform=ax.transAxes, fontsize=8, color="#555555")
     savefig(fig, "exp4a_fpr_vs_fraction.png")
 
     # 4b: Certainty rate vs stash fraction (positive mode only)
@@ -256,6 +303,21 @@ def plot_exp4():
     ax.legend()
     ax.grid(True, alpha=0.3)
     savefig(fig, "exp4b_certainty_vs_fraction.png")
+
+    # 4c: False-negative rate vs stash fraction (negative mode)
+    if "false_negative_rate" in stash_df.columns:
+        fig, ax = plt.subplots(figsize=(7, 4))
+        neg_mode = stash_df[stash_df["stash_mode"] == "negative"]
+        for st in ["bf_stash", "lp_stash"]:
+            sub = neg_mode[neg_mode["stash_type"] == st]
+            ax.plot(sub["stash_fraction"], sub["false_negative_rate"], "o-",
+                    color=color_of(st), label=label_of(st))
+        ax.set_xlabel("Stash fraction of total bits")
+        ax.set_ylabel("False negative rate")
+        ax.set_title("Exp 4c: False negatives vs stash fraction (negative mode)")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        savefig(fig, "exp4c_false_negative_vs_fraction.png")
 
 
 # -------------------------------------------------------------------------
