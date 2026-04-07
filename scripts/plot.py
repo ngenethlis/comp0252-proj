@@ -419,7 +419,7 @@ def plot_exp6():
     ax.set_xticks(list(x))
     ax.set_xticklabels(labels, rotation=15, ha="right")
     ax.set_ylabel("Positive query count")
-    ax.set_title("Exp 6b: Positive query outcomes (Zipf hot keys)")
+    ax.set_title("Exp 6b: Positive query outcomes (count-weighted hot keys)")
     ax.legend()
     ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()

@@ -1,10 +1,12 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
+#include <fstream>
 #include <string>
 
 #include "bloom_filter.h"
 #include "bloom_filter_stash.h"
+#include "experiment_utils.h"
 #include "linear_probing_stash.h"
 #include "partitioned_bloom_filter.h"
 #include "prob_bool.h"
@@ -264,6 +266,31 @@ TEST(lp_stash_duplicate_insert_no_capacity_loss) {
     ASSERT_TRUE(stash.insert(99));
     ASSERT_TRUE(!stash.insert(123));
     PASS("lp_stash_duplicate_insert_no_capacity_loss");
+}
+
+TEST(read_weighted_lines_parses_count_suffix) {
+    const std::string path = "tests/tmp_weighted_lines.txt";
+    {
+        std::ofstream out(path);
+        out << "alpha:7\n";
+        out << "beta\n";
+        out << "gamma:not-a-number\n";
+        out << "delta:0\n";
+    }
+
+    auto entries = read_weighted_lines(path);
+    ASSERT_TRUE(entries.size() == 4);
+    ASSERT_TRUE(entries[0].key == "alpha");
+    ASSERT_TRUE(entries[0].count == 7);
+    ASSERT_TRUE(entries[1].key == "beta");
+    ASSERT_TRUE(entries[1].count == 1);
+    ASSERT_TRUE(entries[2].key == "gamma:not-a-number");
+    ASSERT_TRUE(entries[2].count == 1);
+    ASSERT_TRUE(entries[3].key == "delta");
+    ASSERT_TRUE(entries[3].count == 1);
+
+    std::remove(path.c_str());
+    PASS("read_weighted_lines_parses_count_suffix");
 }
 
 // ===========================================================================

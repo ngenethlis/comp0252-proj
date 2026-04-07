@@ -6,7 +6,7 @@ A header-only C++20 library implementing a standard Bloom filter and a stash-aug
 
 ```bash
 cmake -B build && cmake --build build
-./build/tests                  # run tests (33 tests)
+./build/tests                  # run tests (35 tests)
 ./build/bench                  # run benchmarks (insert/query throughput)
 ./build/main                   # run all experiments (exp1-exp7)
 ./build/main exp1              # run single experiment
@@ -33,7 +33,7 @@ include/                   Header-only library (all templates, no .cpp files)
 src/
   main.cpp                   Experiment runner (exp1-exp7 + demo mode)
 tests/
-  test_bloom_filter.cpp      All unit tests (34 tests)
+  test_bloom_filter.cpp      All unit tests (35 tests)
 bench/
   bench_bloom_filter.cpp     Insert/query throughput benchmarks
 scripts/

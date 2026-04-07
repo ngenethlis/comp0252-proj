@@ -1,6 +1,8 @@
 #pragma once
 
+#include <charconv>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -8,6 +10,7 @@
 #include <numeric>
 #include <random>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "stashed_bloom_filter.h"
@@ -164,11 +167,83 @@ inline std::vector<std::string> read_lines(const std::string& path) {
     std::ifstream file(path);
     std::string line;
     while (std::getline(file, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) {
+            line.pop_back();
+        }
         if (!line.empty()) {
             lines.push_back(line);
         }
     }
     return lines;
+}
+
+struct WeightedStringEntry {
+    std::string key;
+    uint64_t count = 1;
+};
+
+// Read non-empty lines from a text file where entries may be either:
+//   key
+// or
+//   key:count
+// If count is missing or invalid, defaults to 1.
+inline std::vector<WeightedStringEntry> read_weighted_lines(const std::string& path) {
+    std::vector<WeightedStringEntry> entries;
+    std::ifstream file(path);
+    std::string line;
+    while (std::getline(file, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) {
+            line.pop_back();
+        }
+        if (line.empty()) {
+            continue;
+        }
+
+        WeightedStringEntry entry{line, 1};
+        const size_t sep = line.rfind(':');
+        if (sep != std::string::npos && sep > 0 && sep + 1 < line.size()) {
+            uint64_t parsed_count = 1;
+            const char* begin = line.data() + sep + 1;
+            const char* end = line.data() + line.size();
+            while (begin < end && std::isspace(static_cast<unsigned char>(*begin))) {
+                ++begin;
+            }
+            while (end > begin && std::isspace(static_cast<unsigned char>(*(end - 1)))) {
+                --end;
+            }
+            const auto result = std::from_chars(begin, end, parsed_count);
+            if (begin < end && result.ec == std::errc() && result.ptr == end) {
+                entry.key = line.substr(0, sep);
+                entry.count = parsed_count > 0 ? parsed_count : 1;
+            }
+        }
+        entries.push_back(std::move(entry));
+    }
+    return entries;
+}
+
+// Draw n samples from indices [0, weights.size()) with probability proportional
+// to the provided non-negative weights.
+inline std::vector<size_t> sample_weighted_indices(size_t n, const std::vector<uint64_t>& weights,
+                                                   uint64_t seed) {
+    std::vector<size_t> indices;
+    if (weights.empty() || n == 0) {
+        return indices;
+    }
+    indices.reserve(n);
+
+    std::vector<double> probs;
+    probs.reserve(weights.size());
+    for (uint64_t w : weights) {
+        probs.push_back(static_cast<double>(w));
+    }
+
+    std::mt19937_64 rng(seed);
+    std::discrete_distribution<size_t> dist(probs.begin(), probs.end());
+    for (size_t i = 0; i < n; ++i) {
+        indices.push_back(dist(rng));
+    }
+    return indices;
 }
 
 // Generate n random alphanumeric strings of the given length.

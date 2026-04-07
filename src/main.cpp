@@ -68,6 +68,40 @@ static std::vector<std::string> make_data_derived_negatives(
     return negatives;
 }
 
+static void split_weighted_entries(const std::vector<WeightedStringEntry>& entries,
+                                   std::vector<std::string>* keys,
+                                   std::vector<uint64_t>* counts) {
+    keys->clear();
+    counts->clear();
+    keys->reserve(entries.size());
+    counts->reserve(entries.size());
+    for (const auto& entry : entries) {
+        keys->push_back(entry.key);
+        counts->push_back(entry.count);
+    }
+}
+
+static uint64_t sum_weights(const std::vector<uint64_t>& weights) {
+    uint64_t total = 0;
+    for (uint64_t w : weights) {
+        total += w;
+    }
+    return total;
+}
+
+static std::vector<uint64_t> derive_negative_weights(const std::vector<uint64_t>& source_weights,
+                                                     size_t target_size) {
+    std::vector<uint64_t> weights;
+    if (source_weights.empty() || target_size == 0) {
+        return weights;
+    }
+    weights.reserve(target_size);
+    for (size_t i = 0; i < target_size; ++i) {
+        weights.push_back(source_weights[i % source_weights.size()]);
+    }
+    return weights;
+}
+
 // ---------------------------------------------------------------------------
 // Experiment 1 — Certainty analysis vs collision threshold
 //
@@ -464,12 +498,18 @@ static void run_exp4_stash_fraction() {
 static void run_exp5_passwords(const std::string& password_file) {
     std::cerr << "=== Exp 5: Password workload ===\n";
 
-    auto passwords = read_lines(password_file);
-    if (passwords.empty()) {
+    auto weighted_passwords = read_weighted_lines(password_file);
+    if (weighted_passwords.empty()) {
         std::cerr << "  ERROR: no passwords loaded from " << password_file << "\n";
         return;
     }
-    std::cerr << "  loaded " << passwords.size() << " passwords from " << password_file << "\n";
+    std::vector<std::string> passwords;
+    std::vector<uint64_t> password_counts;
+    split_weighted_entries(weighted_passwords, &passwords, &password_counts);
+    uint64_t total_positive_queries = sum_weights(password_counts);
+
+    std::cerr << "  loaded " << passwords.size() << " passwords from " << password_file
+              << " (weighted queries=" << total_positive_queries << ")\n";
 
     csv_header(
         "experiment,filter_type,n_passwords,total_bits,"
@@ -497,15 +537,19 @@ static void run_exp5_passwords(const std::string& password_file) {
         for (const auto& pw : passwords) {
             bf.insert(pw);
         }
-        // For plain BF: all positives are "Maybe", no True/False certainty
-        size_t pos_maybe = 0;
-        for (const auto& pw : passwords) {
-            if (bf.query(pw)) {
-                ++pos_maybe;
+        // Positive queries are weighted by the dataset's count field.
+        uint64_t pos_maybe = 0;
+        uint64_t pos_false = 0;
+        for (size_t i = 0; i < passwords.size(); ++i) {
+            if (bf.query(passwords[i])) {
+                pos_maybe += password_counts[i];
+            } else {
+                pos_false += password_counts[i];
             }
         }
         double fpr = measure_fpr(bf, negatives);
-        csv_row("exp5", "bloom_filter", n, total_bits, 0, pos_maybe, 0, 0.0, 0, 0, 0, fpr, 0.0, 0);
+        csv_row("exp5", "bloom_filter", n, total_bits, 0, pos_maybe, pos_false, 0.0, 0, 0, 0, fpr,
+                0.0, 0);
     }
     // Partitioned BF
     {
@@ -513,15 +557,18 @@ static void run_exp5_passwords(const std::string& password_file) {
         for (const auto& pw : passwords) {
             pbf.insert(pw);
         }
-        size_t pos_maybe = 0;
-        for (const auto& pw : passwords) {
-            if (pbf.query(pw)) {
-                ++pos_maybe;
+        uint64_t pos_maybe = 0;
+        uint64_t pos_false = 0;
+        for (size_t i = 0; i < passwords.size(); ++i) {
+            if (pbf.query(passwords[i])) {
+                pos_maybe += password_counts[i];
+            } else {
+                pos_false += password_counts[i];
             }
         }
         double fpr = measure_fpr(pbf, negatives);
-        csv_row("exp5", "partitioned_bf", n, total_bits, 0, pos_maybe, 0, 0.0, 0, 0, 0, fpr, 0.0,
-                0);
+        csv_row("exp5", "partitioned_bf", n, total_bits, 0, pos_maybe, pos_false, 0.0, 0, 0, 0,
+                fpr, 0.0, 0);
     }
     // Stashed BF + BF stash + positive
     {
@@ -531,11 +578,30 @@ static void run_exp5_passwords(const std::string& password_file) {
         for (const auto& pw : passwords) {
             sbf.insert(pw);
         }
-        auto pos = count_query_results(sbf, passwords);
+        uint64_t pos_true = 0;
+        uint64_t pos_maybe = 0;
+        uint64_t pos_false = 0;
+        for (size_t i = 0; i < passwords.size(); ++i) {
+            switch (sbf.query(passwords[i])) {
+                case ProbBool::True:
+                    pos_true += password_counts[i];
+                    break;
+                case ProbBool::Maybe:
+                    pos_maybe += password_counts[i];
+                    break;
+                case ProbBool::False:
+                    pos_false += password_counts[i];
+                    break;
+            }
+        }
         auto neg = count_query_results(sbf, negatives);
-        csv_row("exp5", "stashed_bf_pos", n, total_bits, pos.true_count, pos.maybe_count,
-                pos.false_count, pos.true_rate(), neg.true_count, neg.maybe_count, neg.false_count,
-                neg.positive_rate(), neg.true_rate(), sbf.stash_count());
+        double certainty_rate = total_positive_queries > 0
+                                    ? static_cast<double>(pos_true) /
+                                          static_cast<double>(total_positive_queries)
+                                    : 0.0;
+        csv_row("exp5", "stashed_bf_pos", n, total_bits, pos_true, pos_maybe, pos_false,
+                certainty_rate, neg.true_count, neg.maybe_count, neg.false_count, neg.positive_rate(),
+                neg.true_rate(), sbf.stash_count());
     }
     // Stashed BF + LP stash + positive
     {
@@ -545,11 +611,30 @@ static void run_exp5_passwords(const std::string& password_file) {
         for (const auto& pw : passwords) {
             sbf.insert(pw);
         }
-        auto pos = count_query_results(sbf, passwords);
+        uint64_t pos_true = 0;
+        uint64_t pos_maybe = 0;
+        uint64_t pos_false = 0;
+        for (size_t i = 0; i < passwords.size(); ++i) {
+            switch (sbf.query(passwords[i])) {
+                case ProbBool::True:
+                    pos_true += password_counts[i];
+                    break;
+                case ProbBool::Maybe:
+                    pos_maybe += password_counts[i];
+                    break;
+                case ProbBool::False:
+                    pos_false += password_counts[i];
+                    break;
+            }
+        }
         auto neg = count_query_results(sbf, negatives);
-        csv_row("exp5", "stashed_lp_pos", n, total_bits, pos.true_count, pos.maybe_count,
-                pos.false_count, pos.true_rate(), neg.true_count, neg.maybe_count, neg.false_count,
-                neg.positive_rate(), neg.true_rate(), sbf.stash_count());
+        double certainty_rate = total_positive_queries > 0
+                                    ? static_cast<double>(pos_true) /
+                                          static_cast<double>(total_positive_queries)
+                                    : 0.0;
+        csv_row("exp5", "stashed_lp_pos", n, total_bits, pos_true, pos_maybe, pos_false,
+                certainty_rate, neg.true_count, neg.maybe_count, neg.false_count, neg.positive_rate(),
+                neg.true_rate(), sbf.stash_count());
     }
     // Stashed BF + BF stash + negative
     {
@@ -560,11 +645,30 @@ static void run_exp5_passwords(const std::string& password_file) {
             sbf.insert(pw);
         }
         sbf.populate_negative_stash(stash_negatives.begin(), stash_negatives.end());
-        auto pos = count_query_results(sbf, passwords);
+        uint64_t pos_true = 0;
+        uint64_t pos_maybe = 0;
+        uint64_t pos_false = 0;
+        for (size_t i = 0; i < passwords.size(); ++i) {
+            switch (sbf.query(passwords[i])) {
+                case ProbBool::True:
+                    pos_true += password_counts[i];
+                    break;
+                case ProbBool::Maybe:
+                    pos_maybe += password_counts[i];
+                    break;
+                case ProbBool::False:
+                    pos_false += password_counts[i];
+                    break;
+            }
+        }
         auto neg = count_query_results(sbf, negatives);
-        csv_row("exp5", "stashed_bf_neg", n, total_bits, pos.true_count, pos.maybe_count,
-                pos.false_count, pos.true_rate(), neg.true_count, neg.maybe_count, neg.false_count,
-                neg.positive_rate(), neg.true_rate(), sbf.stash_count());
+        double certainty_rate = total_positive_queries > 0
+                                    ? static_cast<double>(pos_true) /
+                                          static_cast<double>(total_positive_queries)
+                                    : 0.0;
+        csv_row("exp5", "stashed_bf_neg", n, total_bits, pos_true, pos_maybe, pos_false,
+                certainty_rate, neg.true_count, neg.maybe_count, neg.false_count, neg.positive_rate(),
+                neg.true_rate(), sbf.stash_count());
     }
     // Stashed BF + LP stash + negative
     {
@@ -575,11 +679,30 @@ static void run_exp5_passwords(const std::string& password_file) {
             sbf.insert(pw);
         }
         sbf.populate_negative_stash(stash_negatives.begin(), stash_negatives.end());
-        auto pos = count_query_results(sbf, passwords);
+        uint64_t pos_true = 0;
+        uint64_t pos_maybe = 0;
+        uint64_t pos_false = 0;
+        for (size_t i = 0; i < passwords.size(); ++i) {
+            switch (sbf.query(passwords[i])) {
+                case ProbBool::True:
+                    pos_true += password_counts[i];
+                    break;
+                case ProbBool::Maybe:
+                    pos_maybe += password_counts[i];
+                    break;
+                case ProbBool::False:
+                    pos_false += password_counts[i];
+                    break;
+            }
+        }
         auto neg = count_query_results(sbf, negatives);
-        csv_row("exp5", "stashed_lp_neg", n, total_bits, pos.true_count, pos.maybe_count,
-                pos.false_count, pos.true_rate(), neg.true_count, neg.maybe_count, neg.false_count,
-                neg.positive_rate(), neg.true_rate(), sbf.stash_count());
+        double certainty_rate = total_positive_queries > 0
+                                    ? static_cast<double>(pos_true) /
+                                          static_cast<double>(total_positive_queries)
+                                    : 0.0;
+        csv_row("exp5", "stashed_lp_neg", n, total_bits, pos_true, pos_maybe, pos_false,
+                certainty_rate, neg.true_count, neg.maybe_count, neg.false_count, neg.positive_rate(),
+                neg.true_rate(), sbf.stash_count());
     }
     std::cerr << "  done.\n";
 }
@@ -587,23 +710,28 @@ static void run_exp5_passwords(const std::string& password_file) {
 // ---------------------------------------------------------------------------
 // Experiment 6 — Data-driven hot-positive certainty workload
 //
-// Uses password data for both inserted keys and Zipf-weighted query streams.
+// Uses password data for both inserted keys and count-weighted query streams.
 // Goal: show when positive LP stash helps by reducing "Maybe" responses
 // (fewer downstream exact checks) while preserving correctness.
 // ---------------------------------------------------------------------------
 static void run_exp6_hot_positive(const std::string& password_file) {
     std::cerr << "=== Exp 6: Hot-positive certainty workload ===\n";
 
-    auto passwords = read_lines(password_file);
-    if (passwords.empty()) {
+    auto weighted_passwords = read_weighted_lines(password_file);
+    if (weighted_passwords.empty()) {
         std::cerr << "  ERROR: no passwords loaded from " << password_file << "\n";
         return;
     }
+    std::vector<std::string> passwords;
+    std::vector<uint64_t> password_counts;
+    split_weighted_entries(weighted_passwords, &passwords, &password_counts);
     constexpr size_t kMaxPasswords = 100000;
     if (passwords.size() > kMaxPasswords) {
         passwords.resize(kMaxPasswords);
+        password_counts.resize(kMaxPasswords);
     }
-    std::cerr << "  loaded " << passwords.size() << " passwords from " << password_file << "\n";
+    std::cerr << "  loaded " << passwords.size() << " passwords from " << password_file
+              << " (weighted queries=" << sum_weights(password_counts) << ")\n";
 
     size_t n = passwords.size();
     size_t total_bits = n * 20;
@@ -614,13 +742,12 @@ static void run_exp6_hot_positive(const std::string& password_file) {
 
     size_t neg_pool_size = std::max<size_t>(5000, std::min<size_t>(30000, n));
     auto negatives = make_data_derived_negatives(passwords, neg_pool_size);
+    auto negative_weights = derive_negative_weights(password_counts, negatives.size());
 
     size_t pos_queries = std::max<size_t>(100000, n * 3);
     size_t neg_queries = std::max<size_t>(50000, neg_pool_size * 10);
-    auto pos_ranks =
-        generate_zipf_keys(pos_queries, 1.2, static_cast<uint64_t>(n), kSeed + 600);
-    auto neg_ranks = generate_zipf_keys(neg_queries, 1.1, static_cast<uint64_t>(negatives.size()),
-                                        kSeed + 601);
+    auto pos_indices = sample_weighted_indices(pos_queries, password_counts, kSeed + 600);
+    auto neg_indices = sample_weighted_indices(neg_queries, negative_weights, kSeed + 601);
 
     csv_header(
         "experiment,filter_type,n_passwords,total_bits,"
@@ -642,8 +769,8 @@ static void run_exp6_hot_positive(const std::string& password_file) {
 
         size_t pos_maybe = 0;
         size_t pos_false = 0;
-        for (uint64_t rank : pos_ranks) {
-            if (bf.query(passwords[rank - 1])) {
+        for (size_t idx : pos_indices) {
+            if (bf.query(passwords[idx])) {
                 ++pos_maybe;
             } else {
                 ++pos_false;
@@ -652,24 +779,24 @@ static void run_exp6_hot_positive(const std::string& password_file) {
 
         size_t neg_maybe = 0;
         size_t neg_false = 0;
-        for (uint64_t rank : neg_ranks) {
-            if (bf.query(negatives[rank - 1])) {
+        for (size_t idx : neg_indices) {
+            if (bf.query(negatives[idx])) {
                 ++neg_maybe;
             } else {
                 ++neg_false;
             }
         }
 
-        size_t total_queries = pos_ranks.size() + neg_ranks.size();
+        size_t total_queries = pos_indices.size() + neg_indices.size();
         baseline_downstream_rate = total_queries > 0
                                        ? static_cast<double>(pos_maybe + neg_maybe) /
                                              static_cast<double>(total_queries)
                                        : 0.0;
-        double fpr = neg_ranks.empty()
+        double fpr = neg_indices.empty()
                          ? 0.0
-                         : static_cast<double>(neg_maybe) / static_cast<double>(neg_ranks.size());
+                         : static_cast<double>(neg_maybe) / static_cast<double>(neg_indices.size());
 
-        csv_row("exp6", "bloom_filter", n, total_bits, pos_ranks.size(), neg_ranks.size(), 0,
+        csv_row("exp6", "bloom_filter", n, total_bits, pos_indices.size(), neg_indices.size(), 0,
                 pos_maybe, pos_false, 0, neg_maybe, neg_false, 0.0, fpr, 0.0,
                 baseline_downstream_rate, 0.0, 0);
     }
@@ -686,8 +813,8 @@ static void run_exp6_hot_positive(const std::string& password_file) {
         size_t pos_true = 0;
         size_t pos_maybe = 0;
         size_t pos_false = 0;
-        for (uint64_t rank : pos_ranks) {
-            switch (sbf.query(passwords[rank - 1])) {
+        for (size_t idx : pos_indices) {
+            switch (sbf.query(passwords[idx])) {
                 case ProbBool::True:
                     ++pos_true;
                     break;
@@ -703,8 +830,8 @@ static void run_exp6_hot_positive(const std::string& password_file) {
         size_t neg_true = 0;
         size_t neg_maybe = 0;
         size_t neg_false = 0;
-        for (uint64_t rank : neg_ranks) {
-            switch (sbf.query(negatives[rank - 1])) {
+        for (size_t idx : neg_indices) {
+            switch (sbf.query(negatives[idx])) {
                 case ProbBool::True:
                     ++neg_true;
                     break;
@@ -717,17 +844,17 @@ static void run_exp6_hot_positive(const std::string& password_file) {
             }
         }
 
-        size_t total_queries = pos_ranks.size() + neg_ranks.size();
+        size_t total_queries = pos_indices.size() + neg_indices.size();
         double certainty_rate =
-            pos_ranks.empty() ? 0.0 : static_cast<double>(pos_true) / pos_ranks.size();
-        double fpr = neg_ranks.empty()
+            pos_indices.empty() ? 0.0 : static_cast<double>(pos_true) / pos_indices.size();
+        double fpr = neg_indices.empty()
                          ? 0.0
                          : static_cast<double>(neg_true + neg_maybe) /
-                               static_cast<double>(neg_ranks.size());
-        double false_certainty = neg_ranks.empty()
+                               static_cast<double>(neg_indices.size());
+        double false_certainty = neg_indices.empty()
                                      ? 0.0
-                                     : static_cast<double>(neg_true) /
-                                           static_cast<double>(neg_ranks.size());
+                                      : static_cast<double>(neg_true) /
+                                            static_cast<double>(neg_indices.size());
         double downstream_rate = total_queries > 0
                                      ? static_cast<double>(pos_maybe + neg_maybe) /
                                            static_cast<double>(total_queries)
@@ -737,7 +864,7 @@ static void run_exp6_hot_positive(const std::string& password_file) {
                                                 100.0
                                           : 0.0;
 
-        csv_row("exp6", "stashed_lp_pos", n, total_bits, pos_ranks.size(), neg_ranks.size(),
+        csv_row("exp6", "stashed_lp_pos", n, total_bits, pos_indices.size(), neg_indices.size(),
                 pos_true, pos_maybe, pos_false, neg_true, neg_maybe, neg_false, certainty_rate, fpr,
                 false_certainty, downstream_rate, downstream_reduction, sbf.stash_count());
     }
@@ -747,23 +874,28 @@ static void run_exp6_hot_positive(const std::string& password_file) {
 // ---------------------------------------------------------------------------
 // Experiment 7 — Repeated negatives with warm-up (data-driven)
 //
-// Uses data-derived negatives sampled with Zipf locality.
+// Uses data-derived negatives sampled with the dataset's count distribution.
 // Warm-up queries populate an LP negative stash; evaluation uses a fresh draw
 // from the same distribution to test practical carryover.
 // ---------------------------------------------------------------------------
 static void run_exp7_repeated_negative(const std::string& password_file) {
     std::cerr << "=== Exp 7: Repeated-negative warm-up ===\n";
 
-    auto passwords = read_lines(password_file);
-    if (passwords.empty()) {
+    auto weighted_passwords = read_weighted_lines(password_file);
+    if (weighted_passwords.empty()) {
         std::cerr << "  ERROR: no passwords loaded from " << password_file << "\n";
         return;
     }
+    std::vector<std::string> passwords;
+    std::vector<uint64_t> password_counts;
+    split_weighted_entries(weighted_passwords, &passwords, &password_counts);
     constexpr size_t kMaxPasswords = 100000;
     if (passwords.size() > kMaxPasswords) {
         passwords.resize(kMaxPasswords);
+        password_counts.resize(kMaxPasswords);
     }
-    std::cerr << "  loaded " << passwords.size() << " passwords from " << password_file << "\n";
+    std::cerr << "  loaded " << passwords.size() << " passwords from " << password_file
+              << " (weighted queries=" << sum_weights(password_counts) << ")\n";
 
     size_t n = passwords.size();
     size_t total_bits = n * 12;
@@ -777,12 +909,11 @@ static void run_exp7_repeated_negative(const std::string& password_file) {
 
     size_t neg_pool_size = std::max<size_t>(5000, std::min<size_t>(30000, n));
     auto negatives = make_data_derived_negatives(passwords, neg_pool_size);
+    auto negative_weights = derive_negative_weights(password_counts, negatives.size());
     size_t warmup_queries = std::max<size_t>(200000, neg_pool_size * 20);
     size_t eval_queries = warmup_queries;
-    auto warmup_ranks = generate_zipf_keys(warmup_queries, 1.15,
-                                           static_cast<uint64_t>(negatives.size()), kSeed + 700);
-    auto eval_ranks = generate_zipf_keys(eval_queries, 1.15, static_cast<uint64_t>(negatives.size()),
-                                         kSeed + 701);
+    auto warmup_indices = sample_weighted_indices(warmup_queries, negative_weights, kSeed + 700);
+    auto eval_indices = sample_weighted_indices(eval_queries, negative_weights, kSeed + 701);
 
     csv_header(
         "experiment,filter_type,n_passwords,total_bits,"
@@ -800,17 +931,17 @@ static void run_exp7_repeated_negative(const std::string& password_file) {
         }
 
         size_t fp = 0;
-        for (uint64_t rank : eval_ranks) {
-            if (bf.query(negatives[rank - 1])) {
+        for (size_t idx : eval_indices) {
+            if (bf.query(negatives[idx])) {
                 ++fp;
             }
         }
-        baseline_fpr = eval_ranks.empty()
+        baseline_fpr = eval_indices.empty()
                            ? 0.0
-                           : static_cast<double>(fp) / static_cast<double>(eval_ranks.size());
+                           : static_cast<double>(fp) / static_cast<double>(eval_indices.size());
 
-        csv_row("exp7", "bloom_filter", n, total_bits, 0.0, negatives.size(), warmup_ranks.size(),
-                eval_ranks.size(), baseline_fpr, 0.0, 0.0, 0);
+        csv_row("exp7", "bloom_filter", n, total_bits, 0.0, negatives.size(),
+                warmup_indices.size(), eval_indices.size(), baseline_fpr, 0.0, 0.0, 0);
     }
 
     // LP negative stash with warm-up then holdout evaluation.
@@ -822,28 +953,34 @@ static void run_exp7_repeated_negative(const std::string& password_file) {
             sbf.insert(pw);
         }
 
-        for (uint64_t rank : warmup_ranks) {
-            sbf.insert_negative(negatives[rank - 1]);
+        for (size_t idx : warmup_indices) {
+            sbf.insert_negative(negatives[idx]);
         }
 
         size_t fp_eval = 0;
-        for (uint64_t rank : eval_ranks) {
-            if (sbf.query_bool(negatives[rank - 1])) {
+        for (size_t idx : eval_indices) {
+            if (sbf.query_bool(negatives[idx])) {
                 ++fp_eval;
             }
         }
-        double fpr = eval_ranks.empty()
+        double fpr = eval_indices.empty()
                          ? 0.0
-                         : static_cast<double>(fp_eval) / static_cast<double>(eval_ranks.size());
-        auto pos = count_query_results(sbf, passwords);
-        double fnr = passwords.empty()
+                         : static_cast<double>(fp_eval) / static_cast<double>(eval_indices.size());
+        uint64_t pos_total = 0;
+        uint64_t pos_false = 0;
+        for (size_t i = 0; i < passwords.size(); ++i) {
+            pos_total += password_counts[i];
+            if (sbf.query(passwords[i]) == ProbBool::False) {
+                pos_false += password_counts[i];
+            }
+        }
+        double fnr = pos_total == 0
                          ? 0.0
-                         : static_cast<double>(pos.false_count) /
-                               static_cast<double>(passwords.size());
+                         : static_cast<double>(pos_false) / static_cast<double>(pos_total);
         double reduction = baseline_fpr > 0 ? (1.0 - fpr / baseline_fpr) * 100.0 : 0.0;
 
         csv_row("exp7", "stashed_lp_neg", n, total_bits, kStashFraction, negatives.size(),
-                warmup_ranks.size(), eval_ranks.size(), fpr, fnr, reduction, sbf.stash_count());
+                warmup_indices.size(), eval_indices.size(), fpr, fnr, reduction, sbf.stash_count());
     }
     std::cerr << "  done.\n";
 }
@@ -852,11 +989,14 @@ static void run_exp7_repeated_negative(const std::string& password_file) {
 // Demo: Interactive breached-password querier
 // ---------------------------------------------------------------------------
 static void run_demo(const std::string& password_file) {
-    auto passwords = read_lines(password_file);
-    if (passwords.empty()) {
+    auto weighted_passwords = read_weighted_lines(password_file);
+    if (weighted_passwords.empty()) {
         std::cerr << "ERROR: no passwords loaded from " << password_file << "\n";
         return;
     }
+    std::vector<std::string> passwords;
+    std::vector<uint64_t> password_counts;
+    split_weighted_entries(weighted_passwords, &passwords, &password_counts);
 
     size_t n = passwords.size();
     size_t total_bits = n * 20;
