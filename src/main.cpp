@@ -1,7 +1,9 @@
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "bloom_filter.h"
@@ -38,6 +40,32 @@ static void csv_row(Args&&... args) {
     };
     (print(std::forward<Args>(args)), ...);
     std::cout << "\n";
+}
+
+static std::vector<std::string> make_data_derived_negatives(
+    const std::vector<std::string>& positives, size_t count) {
+    std::vector<std::string> negatives;
+    if (positives.empty() || count == 0) {
+        return negatives;
+    }
+    negatives.reserve(count);
+
+    std::unordered_set<std::string> positive_set(positives.begin(), positives.end());
+    std::unordered_set<std::string> seen;
+    seen.reserve(count * 2);
+
+    for (size_t i = 0; negatives.size() < count; ++i) {
+        const std::string& base = positives[i % positives.size()];
+        std::string candidate = base + "|neg|" + std::to_string(i);
+        if (positive_set.find(candidate) != positive_set.end()) {
+            continue;
+        }
+        if (!seen.insert(candidate).second) {
+            continue;
+        }
+        negatives.push_back(std::move(candidate));
+    }
+    return negatives;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,9 +146,9 @@ static void run_exp1_certainty() {
 // turning their query result from Maybe → False.
 //
 // We test two scenarios:
-//   practical — scan a disjoint set of negatives, stash FPs found,
-//               then measure FPR on the held-out test negatives.
-//   oracle    — scan the test negatives themselves (upper bound).
+//   practical — warm up on the first half of a query stream and evaluate on
+//               the second half (same distribution, held-out keys).
+//   oracle    — scan the evaluation half itself (upper bound).
 //
 // Compared against plain BF with all kTotalBits.
 // ---------------------------------------------------------------------------
@@ -557,6 +585,270 @@ static void run_exp5_passwords(const std::string& password_file) {
 }
 
 // ---------------------------------------------------------------------------
+// Experiment 6 — Data-driven hot-positive certainty workload
+//
+// Uses password data for both inserted keys and Zipf-weighted query streams.
+// Goal: show when positive LP stash helps by reducing "Maybe" responses
+// (fewer downstream exact checks) while preserving correctness.
+// ---------------------------------------------------------------------------
+static void run_exp6_hot_positive(const std::string& password_file) {
+    std::cerr << "=== Exp 6: Hot-positive certainty workload ===\n";
+
+    auto passwords = read_lines(password_file);
+    if (passwords.empty()) {
+        std::cerr << "  ERROR: no passwords loaded from " << password_file << "\n";
+        return;
+    }
+    constexpr size_t kMaxPasswords = 100000;
+    if (passwords.size() > kMaxPasswords) {
+        passwords.resize(kMaxPasswords);
+    }
+    std::cerr << "  loaded " << passwords.size() << " passwords from " << password_file << "\n";
+
+    size_t n = passwords.size();
+    size_t total_bits = n * 20;
+    size_t stash_bits = total_bits / 5;
+    size_t primary_bits = total_bits - stash_bits;
+    size_t collision_threshold = 3;
+    size_t lp_capacity = std::max<size_t>(1, stash_bits / 64);
+
+    size_t neg_pool_size = std::max<size_t>(5000, std::min<size_t>(30000, n));
+    auto negatives = make_data_derived_negatives(passwords, neg_pool_size);
+
+    size_t pos_queries = std::max<size_t>(100000, n * 3);
+    size_t neg_queries = std::max<size_t>(50000, neg_pool_size * 10);
+    auto pos_ranks =
+        generate_zipf_keys(pos_queries, 1.2, static_cast<uint64_t>(n), kSeed + 600);
+    auto neg_ranks = generate_zipf_keys(neg_queries, 1.1, static_cast<uint64_t>(negatives.size()),
+                                        kSeed + 601);
+
+    csv_header(
+        "experiment,filter_type,n_passwords,total_bits,"
+        "pos_queries,neg_queries,"
+        "pos_true,pos_maybe,pos_false,"
+        "neg_true,neg_maybe,neg_false,"
+        "certainty_rate,fpr,false_certainty_rate,"
+        "downstream_check_rate,downstream_reduction_pct,"
+        "stash_count");
+
+    double baseline_downstream_rate = 0.0;
+
+    // Plain BF baseline
+    {
+        BloomFilter<std::string> bf(total_bits, kNumHashes);
+        for (const auto& pw : passwords) {
+            bf.insert(pw);
+        }
+
+        size_t pos_maybe = 0;
+        size_t pos_false = 0;
+        for (uint64_t rank : pos_ranks) {
+            if (bf.query(passwords[rank - 1])) {
+                ++pos_maybe;
+            } else {
+                ++pos_false;
+            }
+        }
+
+        size_t neg_maybe = 0;
+        size_t neg_false = 0;
+        for (uint64_t rank : neg_ranks) {
+            if (bf.query(negatives[rank - 1])) {
+                ++neg_maybe;
+            } else {
+                ++neg_false;
+            }
+        }
+
+        size_t total_queries = pos_ranks.size() + neg_ranks.size();
+        baseline_downstream_rate = total_queries > 0
+                                       ? static_cast<double>(pos_maybe + neg_maybe) /
+                                             static_cast<double>(total_queries)
+                                       : 0.0;
+        double fpr = neg_ranks.empty()
+                         ? 0.0
+                         : static_cast<double>(neg_maybe) / static_cast<double>(neg_ranks.size());
+
+        csv_row("exp6", "bloom_filter", n, total_bits, pos_ranks.size(), neg_ranks.size(), 0,
+                pos_maybe, pos_false, 0, neg_maybe, neg_false, 0.0, fpr, 0.0,
+                baseline_downstream_rate, 0.0, 0);
+    }
+
+    // Stashed BF with LP stash in positive mode
+    {
+        LinearProbingStash<std::string> stash(lp_capacity);
+        StashedBloomFilter<std::string, DefaultHashPolicy, LinearProbingStash<std::string>> sbf(
+            primary_bits, kNumHashes, std::move(stash), collision_threshold, StashMode::Positive);
+        for (const auto& pw : passwords) {
+            sbf.insert(pw);
+        }
+
+        size_t pos_true = 0;
+        size_t pos_maybe = 0;
+        size_t pos_false = 0;
+        for (uint64_t rank : pos_ranks) {
+            switch (sbf.query(passwords[rank - 1])) {
+                case ProbBool::True:
+                    ++pos_true;
+                    break;
+                case ProbBool::Maybe:
+                    ++pos_maybe;
+                    break;
+                case ProbBool::False:
+                    ++pos_false;
+                    break;
+            }
+        }
+
+        size_t neg_true = 0;
+        size_t neg_maybe = 0;
+        size_t neg_false = 0;
+        for (uint64_t rank : neg_ranks) {
+            switch (sbf.query(negatives[rank - 1])) {
+                case ProbBool::True:
+                    ++neg_true;
+                    break;
+                case ProbBool::Maybe:
+                    ++neg_maybe;
+                    break;
+                case ProbBool::False:
+                    ++neg_false;
+                    break;
+            }
+        }
+
+        size_t total_queries = pos_ranks.size() + neg_ranks.size();
+        double certainty_rate =
+            pos_ranks.empty() ? 0.0 : static_cast<double>(pos_true) / pos_ranks.size();
+        double fpr = neg_ranks.empty()
+                         ? 0.0
+                         : static_cast<double>(neg_true + neg_maybe) /
+                               static_cast<double>(neg_ranks.size());
+        double false_certainty = neg_ranks.empty()
+                                     ? 0.0
+                                     : static_cast<double>(neg_true) /
+                                           static_cast<double>(neg_ranks.size());
+        double downstream_rate = total_queries > 0
+                                     ? static_cast<double>(pos_maybe + neg_maybe) /
+                                           static_cast<double>(total_queries)
+                                     : 0.0;
+        double downstream_reduction = baseline_downstream_rate > 0
+                                          ? (1.0 - downstream_rate / baseline_downstream_rate) *
+                                                100.0
+                                          : 0.0;
+
+        csv_row("exp6", "stashed_lp_pos", n, total_bits, pos_ranks.size(), neg_ranks.size(),
+                pos_true, pos_maybe, pos_false, neg_true, neg_maybe, neg_false, certainty_rate, fpr,
+                false_certainty, downstream_rate, downstream_reduction, sbf.stash_count());
+    }
+    std::cerr << "  done.\n";
+}
+
+// ---------------------------------------------------------------------------
+// Experiment 7 — Repeated negatives with warm-up (data-driven)
+//
+// Uses data-derived negatives sampled with Zipf locality.
+// Warm-up queries populate an LP negative stash; evaluation uses a fresh draw
+// from the same distribution to test practical carryover.
+// ---------------------------------------------------------------------------
+static void run_exp7_repeated_negative(const std::string& password_file) {
+    std::cerr << "=== Exp 7: Repeated-negative warm-up ===\n";
+
+    auto passwords = read_lines(password_file);
+    if (passwords.empty()) {
+        std::cerr << "  ERROR: no passwords loaded from " << password_file << "\n";
+        return;
+    }
+    constexpr size_t kMaxPasswords = 100000;
+    if (passwords.size() > kMaxPasswords) {
+        passwords.resize(kMaxPasswords);
+    }
+    std::cerr << "  loaded " << passwords.size() << " passwords from " << password_file << "\n";
+
+    size_t n = passwords.size();
+    size_t total_bits = n * 12;
+    constexpr double kStashFraction = 0.20;
+    size_t stash_bits = static_cast<size_t>(static_cast<double>(total_bits) * kStashFraction);
+    if (stash_bits == 0) {
+        stash_bits = 1;
+    }
+    size_t primary_bits = total_bits - stash_bits;
+    size_t lp_capacity = std::max<size_t>(1, stash_bits / 64);
+
+    size_t neg_pool_size = std::max<size_t>(5000, std::min<size_t>(30000, n));
+    auto negatives = make_data_derived_negatives(passwords, neg_pool_size);
+    size_t warmup_queries = std::max<size_t>(200000, neg_pool_size * 20);
+    size_t eval_queries = warmup_queries;
+    auto warmup_ranks = generate_zipf_keys(warmup_queries, 1.15,
+                                           static_cast<uint64_t>(negatives.size()), kSeed + 700);
+    auto eval_ranks = generate_zipf_keys(eval_queries, 1.15, static_cast<uint64_t>(negatives.size()),
+                                         kSeed + 701);
+
+    csv_header(
+        "experiment,filter_type,n_passwords,total_bits,"
+        "stash_fraction,neg_pool_size,warmup_queries,eval_queries,"
+        "fpr,false_negative_rate,fpr_reduction_pct,"
+        "stash_count");
+
+    double baseline_fpr = 0.0;
+
+    // Plain BF baseline on the evaluation query stream.
+    {
+        BloomFilter<std::string> bf(total_bits, kNumHashes);
+        for (const auto& pw : passwords) {
+            bf.insert(pw);
+        }
+
+        size_t fp = 0;
+        for (uint64_t rank : eval_ranks) {
+            if (bf.query(negatives[rank - 1])) {
+                ++fp;
+            }
+        }
+        baseline_fpr = eval_ranks.empty()
+                           ? 0.0
+                           : static_cast<double>(fp) / static_cast<double>(eval_ranks.size());
+
+        csv_row("exp7", "bloom_filter", n, total_bits, 0.0, negatives.size(), warmup_ranks.size(),
+                eval_ranks.size(), baseline_fpr, 0.0, 0.0, 0);
+    }
+
+    // LP negative stash with warm-up then holdout evaluation.
+    {
+        LinearProbingStash<std::string> stash(lp_capacity);
+        StashedBloomFilter<std::string, DefaultHashPolicy, LinearProbingStash<std::string>> sbf(
+            primary_bits, kNumHashes, std::move(stash), 0, StashMode::Negative);
+        for (const auto& pw : passwords) {
+            sbf.insert(pw);
+        }
+
+        for (uint64_t rank : warmup_ranks) {
+            sbf.insert_negative(negatives[rank - 1]);
+        }
+
+        size_t fp_eval = 0;
+        for (uint64_t rank : eval_ranks) {
+            if (sbf.query_bool(negatives[rank - 1])) {
+                ++fp_eval;
+            }
+        }
+        double fpr = eval_ranks.empty()
+                         ? 0.0
+                         : static_cast<double>(fp_eval) / static_cast<double>(eval_ranks.size());
+        auto pos = count_query_results(sbf, passwords);
+        double fnr = passwords.empty()
+                         ? 0.0
+                         : static_cast<double>(pos.false_count) /
+                               static_cast<double>(passwords.size());
+        double reduction = baseline_fpr > 0 ? (1.0 - fpr / baseline_fpr) * 100.0 : 0.0;
+
+        csv_row("exp7", "stashed_lp_neg", n, total_bits, kStashFraction, negatives.size(),
+                warmup_ranks.size(), eval_ranks.size(), fpr, fnr, reduction, sbf.stash_count());
+    }
+    std::cerr << "  done.\n";
+}
+
+// ---------------------------------------------------------------------------
 // Demo: Interactive breached-password querier
 // ---------------------------------------------------------------------------
 static void run_demo(const std::string& password_file) {
@@ -629,6 +921,12 @@ int main(int argc, char* argv[]) {
     }
     if (mode == "exp5" || mode == "all") {
         run_exp5_passwords(password_file);
+    }
+    if (mode == "exp6" || mode == "all") {
+        run_exp6_hot_positive(password_file);
+    }
+    if (mode == "exp7" || mode == "all") {
+        run_exp7_repeated_negative(password_file);
     }
     if (mode == "demo") {
         run_demo(password_file);

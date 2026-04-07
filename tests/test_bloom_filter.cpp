@@ -256,6 +256,16 @@ TEST(lp_stash_size_bits) {
     PASS("lp_stash_size_bits");
 }
 
+TEST(lp_stash_duplicate_insert_no_capacity_loss) {
+    LinearProbingStash<uint64_t> stash(2);
+    ASSERT_TRUE(stash.insert(42));
+    ASSERT_TRUE(stash.insert(42));
+    ASSERT_TRUE(stash.insert(42));
+    ASSERT_TRUE(stash.insert(99));
+    ASSERT_TRUE(!stash.insert(123));
+    PASS("lp_stash_duplicate_insert_no_capacity_loss");
+}
+
 // ===========================================================================
 // StashedBloomFilter with BloomFilterStash (Positive mode)
 // ===========================================================================

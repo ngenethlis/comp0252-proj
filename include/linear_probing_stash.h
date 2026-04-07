@@ -27,7 +27,10 @@ class LinearProbingStash : public StashSet<LinearProbingStash<Key, HashPolicy>, 
 
         for (size_t i = 0; i < _capacity; ++i) {
             size_t pos = (idx + i) % _capacity;
-            if (_slots[pos] == kEmpty || _slots[pos] == fp) {
+            if (_slots[pos] == fp) {
+                return true;
+            }
+            if (_slots[pos] == kEmpty) {
                 _slots[pos] = fp;
                 ++_count;
                 return true;

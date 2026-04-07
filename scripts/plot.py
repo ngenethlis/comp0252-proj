@@ -371,6 +371,109 @@ def plot_exp5():
 
 
 # -------------------------------------------------------------------------
+# Exp 6: Hot-positive certainty workload
+# -------------------------------------------------------------------------
+def plot_exp6():
+    path = os.path.join(RESULTS_DIR, "exp6.csv")
+    if not os.path.exists(path):
+        print("Skipping exp6 (no CSV)")
+        return
+    df = pd.read_csv(path)
+    order = ["bloom_filter", "stashed_lp_pos"]
+    present = [f for f in order if f in set(df["filter_type"])]
+    df = df.set_index("filter_type").loc[present].reset_index()
+
+    x = range(len(df))
+    labels = [label_of(f) for f in df["filter_type"]]
+    colors = [color_of(f) for f in df["filter_type"]]
+
+    # 6a: Downstream check rate
+    fig, ax = plt.subplots(figsize=(7, 4))
+    bars = ax.bar(x, df["downstream_check_rate"].tolist(), color=colors)
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(labels, rotation=15, ha="right")
+    ax.set_ylabel("Downstream check rate (Maybe / total queries)")
+    ax.set_title("Exp 6a: Hot-positive workload downstream checks")
+    ax.set_ylim(0, 1)
+    if "downstream_reduction_pct" in df.columns:
+        for i, row in df.iterrows():
+            if row["filter_type"] != "bloom_filter":
+                ax.text(bars[i].get_x() + bars[i].get_width() / 2,
+                        bars[i].get_height() + 0.02,
+                        f"{row['downstream_reduction_pct']:.1f}% fewer checks",
+                        ha="center", va="bottom", fontsize=8)
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+    savefig(fig, "exp6a_downstream_checks.png")
+
+    # 6b: Positive query outcome breakdown
+    fig, ax = plt.subplots(figsize=(7, 4))
+    true_vals = df["pos_true"].tolist()
+    maybe_vals = df["pos_maybe"].tolist()
+    false_vals = df["pos_false"].tolist()
+    ax.bar(x, true_vals, color="#27ae60", label="True")
+    ax.bar(x, maybe_vals, bottom=true_vals, color="#f39c12", label="Maybe")
+    ax.bar(x, false_vals,
+           bottom=[t + m for t, m in zip(true_vals, maybe_vals)],
+           color="#e74c3c", label="False")
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(labels, rotation=15, ha="right")
+    ax.set_ylabel("Positive query count")
+    ax.set_title("Exp 6b: Positive query outcomes (Zipf hot keys)")
+    ax.legend()
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+    savefig(fig, "exp6b_positive_query_breakdown.png")
+
+
+# -------------------------------------------------------------------------
+# Exp 7: Repeated negatives with warm-up
+# -------------------------------------------------------------------------
+def plot_exp7():
+    path = os.path.join(RESULTS_DIR, "exp7.csv")
+    if not os.path.exists(path):
+        print("Skipping exp7 (no CSV)")
+        return
+    df = pd.read_csv(path)
+    order = ["bloom_filter", "stashed_lp_neg"]
+    present = [f for f in order if f in set(df["filter_type"])]
+    df = df.set_index("filter_type").loc[present].reset_index()
+
+    x = range(len(df))
+    labels = [label_of(f) for f in df["filter_type"]]
+    colors = [color_of(f) for f in df["filter_type"]]
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+
+    # 7a: Eval FPR comparison
+    bars = axes[0].bar(x, df["fpr"].tolist(), color=colors)
+    axes[0].set_xticks(list(x))
+    axes[0].set_xticklabels(labels, rotation=15, ha="right")
+    axes[0].set_ylabel("False positive rate")
+    axes[0].set_title("Exp 7a: Eval FPR after warm-up")
+    axes[0].grid(True, axis="y", alpha=0.3)
+    if "fpr_reduction_pct" in df.columns:
+        for i, row in df.iterrows():
+            if row["filter_type"] == "stashed_lp_neg":
+                axes[0].text(bars[i].get_x() + bars[i].get_width() / 2,
+                             bars[i].get_height() + 0.001,
+                             f"{row['fpr_reduction_pct']:.1f}% vs plain",
+                             ha="center", va="bottom", fontsize=8)
+
+    # 7b: False-negative rate on positives
+    axes[1].bar(x, df["false_negative_rate"].tolist(), color=colors)
+    axes[1].set_xticks(list(x))
+    axes[1].set_xticklabels(labels, rotation=15, ha="right")
+    axes[1].set_ylabel("False negative rate")
+    axes[1].set_title("Exp 7b: Positive-set false negatives")
+    axes[1].grid(True, axis="y", alpha=0.3)
+
+    fig.suptitle("Exp 7: Repeated-negative warm-up (data-derived queries)", fontsize=12)
+    fig.tight_layout()
+    savefig(fig, "exp7_repeated_negative_warmup.png")
+
+
+# -------------------------------------------------------------------------
 # Benchmarks
 # -------------------------------------------------------------------------
 def plot_bench():
@@ -428,6 +531,8 @@ def main():
         "exp3": plot_exp3,
         "exp4": plot_exp4,
         "exp5": plot_exp5,
+        "exp6": plot_exp6,
+        "exp7": plot_exp7,
         "bench": plot_bench,
     }
 
