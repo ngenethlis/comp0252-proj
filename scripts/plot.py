@@ -53,6 +53,15 @@ def query_model_label(name):
     return mapping.get(name, str(name))
 
 
+def scenario_label(name):
+    mapping = {
+        "in_dist": "In-distribution",
+        "cross_pool": "Cross-pool",
+        "shifted_distribution": "Shifted distribution",
+    }
+    return mapping.get(name, str(name))
+
+
 def savefig(fig, name):
     os.makedirs(PLOTS_DIR, exist_ok=True)
     path = os.path.join(PLOTS_DIR, name)
@@ -468,49 +477,82 @@ def plot_exp7():
     df = pd.read_csv(path)
     if "query_model" not in df.columns:
         df["query_model"] = "count_weighted"
+    if "scenario" not in df.columns:
+        df["scenario"] = "in_dist"
 
     order = ["bloom_filter", "stashed_lp_neg"]
     preferred_models = ["zipf", "count_weighted"]
+    preferred_scenarios = ["in_dist", "cross_pool", "shifted_distribution"]
+
     models = [m for m in preferred_models if m in set(df["query_model"])]
     for m in sorted(set(df["query_model"])):
         if m not in models:
             models.append(m)
 
-    fig, axes = plt.subplots(len(models), 2, figsize=(11, 4 * len(models)), squeeze=False)
+    scenarios = [s for s in preferred_scenarios if s in set(df["scenario"])]
+    for s in sorted(set(df["scenario"])):
+        if s not in scenarios:
+            scenarios.append(s)
+
+    fig, axes = plt.subplots(len(models), 2, figsize=(13, 4 * len(models)), squeeze=False)
+    width = 0.35
 
     for row_idx, model in enumerate(models):
         sub = df[(df["query_model"] == model) & (df["filter_type"].isin(order))].copy()
-        sub["filter_type"] = pd.Categorical(sub["filter_type"], categories=order, ordered=True)
-        sub = sub.sort_values("filter_type")
 
-        x = range(len(sub))
-        labels = [label_of(f) for f in sub["filter_type"]]
-        colors = [color_of(f) for f in sub["filter_type"]]
+        pivot_fpr = sub.pivot_table(index="scenario", columns="filter_type", values="fpr",
+                                    aggfunc="first")
+        pivot_fnr = sub.pivot_table(index="scenario", columns="filter_type",
+                                    values="false_negative_rate", aggfunc="first")
+        pivot_red = sub.pivot_table(index="scenario", columns="filter_type",
+                                    values="fpr_reduction_pct", aggfunc="first")
 
-        # 7a: Eval FPR comparison
-        bars = axes[row_idx, 0].bar(x, sub["fpr"].tolist(), color=colors)
-        axes[row_idx, 0].set_xticks(list(x))
-        axes[row_idx, 0].set_xticklabels(labels, rotation=15, ha="right")
+        x = list(range(len(scenarios)))
+        x_plain = [v - width / 2 for v in x]
+        x_stash = [v + width / 2 for v in x]
+
+        plain_fpr = [pivot_fpr.at[s, "bloom_filter"] if s in pivot_fpr.index and
+                     "bloom_filter" in pivot_fpr.columns else 0.0 for s in scenarios]
+        stash_fpr = [pivot_fpr.at[s, "stashed_lp_neg"] if s in pivot_fpr.index and
+                     "stashed_lp_neg" in pivot_fpr.columns else 0.0 for s in scenarios]
+        plain_fnr = [pivot_fnr.at[s, "bloom_filter"] if s in pivot_fnr.index and
+                     "bloom_filter" in pivot_fnr.columns else 0.0 for s in scenarios]
+        stash_fnr = [pivot_fnr.at[s, "stashed_lp_neg"] if s in pivot_fnr.index and
+                     "stashed_lp_neg" in pivot_fnr.columns else 0.0 for s in scenarios]
+
+        bars_plain = axes[row_idx, 0].bar(x_plain, plain_fpr, width=width,
+                                          color=color_of("bloom_filter"), label=label_of("bloom_filter"))
+        bars_stash = axes[row_idx, 0].bar(x_stash, stash_fpr, width=width,
+                                          color=color_of("stashed_lp_neg"),
+                                          label=label_of("stashed_lp_neg"))
+        axes[row_idx, 0].set_xticks(x)
+        axes[row_idx, 0].set_xticklabels([scenario_label(s) for s in scenarios], rotation=15, ha="right")
         axes[row_idx, 0].set_ylabel("False positive rate")
         axes[row_idx, 0].set_title(f"{query_model_label(model)}: Eval FPR")
         axes[row_idx, 0].grid(True, axis="y", alpha=0.3)
-        if "fpr_reduction_pct" in sub.columns:
-            for i, row in sub.reset_index(drop=True).iterrows():
-                if row["filter_type"] == "stashed_lp_neg":
-                    axes[row_idx, 0].text(bars[i].get_x() + bars[i].get_width() / 2,
-                                          bars[i].get_height() + 0.001,
-                                          f"{row['fpr_reduction_pct']:.1f}% vs plain",
-                                          ha="center", va="bottom", fontsize=8)
 
-        # 7b: False-negative rate on positives
-        axes[row_idx, 1].bar(x, sub["false_negative_rate"].tolist(), color=colors)
-        axes[row_idx, 1].set_xticks(list(x))
-        axes[row_idx, 1].set_xticklabels(labels, rotation=15, ha="right")
+        if "fpr_reduction_pct" in sub.columns and "stashed_lp_neg" in pivot_red.columns:
+            for i, s in enumerate(scenarios):
+                if s in pivot_red.index and pd.notna(pivot_red.at[s, "stashed_lp_neg"]):
+                    axes[row_idx, 0].text(
+                        bars_stash[i].get_x() + bars_stash[i].get_width() / 2,
+                        bars_stash[i].get_height() + max(stash_fpr) * 0.03 if max(stash_fpr) > 0 else 0.001,
+                        f"{pivot_red.at[s, 'stashed_lp_neg']:.1f}%",
+                        ha="center", va="bottom", fontsize=8
+                    )
+
+        axes[row_idx, 1].bar(x_plain, plain_fnr, width=width, color=color_of("bloom_filter"),
+                             label=label_of("bloom_filter"))
+        axes[row_idx, 1].bar(x_stash, stash_fnr, width=width, color=color_of("stashed_lp_neg"),
+                             label=label_of("stashed_lp_neg"))
+        axes[row_idx, 1].set_xticks(x)
+        axes[row_idx, 1].set_xticklabels([scenario_label(s) for s in scenarios], rotation=15, ha="right")
         axes[row_idx, 1].set_ylabel("False negative rate")
         axes[row_idx, 1].set_title(f"{query_model_label(model)}: Positive-set FNR")
         axes[row_idx, 1].grid(True, axis="y", alpha=0.3)
 
-    fig.suptitle("Exp 7: Repeated-negative warm-up comparison", fontsize=12)
+    axes[0, 0].legend()
+    fig.suptitle("Exp 7: Repeated-negative robustness under distribution shift", fontsize=12)
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     savefig(fig, "exp7_repeated_negative_warmup.png")
 

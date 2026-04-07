@@ -39,6 +39,28 @@ deterministically yes, deterministically no, or maybe being useful.
   on pre-scanning the evaluation queries; they are not practical generalization
   results.
 
+### Robustness (overfitting) check under distribution shift
+
+We added robustness scenarios for Exp 7 using two query models:
+- `count_weighted` (from dataset `:count` values)
+- `zipf` (synthetic heavy-tail baseline)
+
+Each model is evaluated in:
+- `in_dist` (same warm-up/eval pool and distribution)
+- `cross_pool` (disjoint eval pool)
+- `shifted_distribution` (same pool, shifted eval distribution)
+
+In current runs (hibp-100k), negative stash shows strong in-distribution gains
+but can fail under shift:
+- **count_weighted**: +95.07% (`in_dist`), -410.33% (`cross_pool`),
+  -40.63% (`shifted_distribution`)
+- **zipf**: +84.90% (`in_dist`), -93.23% (`cross_pool`),
+  +74.77% (`shifted_distribution`)
+
+So negative stash performance is **locality-sensitive**: it can be excellent when
+future queries resemble warm-up traffic, but may degrade sharply when traffic
+moves to different keys.
+
 ### Practical takeaway
 
 Use plain Bloom filter if your objective is the classic one: **no false negatives
