@@ -45,6 +45,14 @@ def label_of(name):
     return FILTER_LABELS.get(name, name)
 
 
+def query_model_label(name):
+    mapping = {
+        "zipf": "Synthetic Zipf",
+        "count_weighted": "Count-weighted from data",
+    }
+    return mapping.get(name, str(name))
+
+
 def savefig(fig, name):
     os.makedirs(PLOTS_DIR, exist_ok=True)
     path = os.path.join(PLOTS_DIR, name)
@@ -379,50 +387,73 @@ def plot_exp6():
         print("Skipping exp6 (no CSV)")
         return
     df = pd.read_csv(path)
+    if "query_model" not in df.columns:
+        df["query_model"] = "count_weighted"
+
     order = ["bloom_filter", "stashed_lp_pos"]
-    present = [f for f in order if f in set(df["filter_type"])]
-    df = df.set_index("filter_type").loc[present].reset_index()
+    preferred_models = ["zipf", "count_weighted"]
+    models = [m for m in preferred_models if m in set(df["query_model"])]
+    for m in sorted(set(df["query_model"])):
+        if m not in models:
+            models.append(m)
 
-    x = range(len(df))
-    labels = [label_of(f) for f in df["filter_type"]]
-    colors = [color_of(f) for f in df["filter_type"]]
+    # 6a: Downstream check rate (per query model)
+    fig, axes = plt.subplots(1, len(models), figsize=(7 * len(models), 4), sharey=True)
+    if len(models) == 1:
+        axes = [axes]
+    for ax, model in zip(axes, models):
+        sub = df[(df["query_model"] == model) & (df["filter_type"].isin(order))].copy()
+        sub["filter_type"] = pd.Categorical(sub["filter_type"], categories=order, ordered=True)
+        sub = sub.sort_values("filter_type")
 
-    # 6a: Downstream check rate
-    fig, ax = plt.subplots(figsize=(7, 4))
-    bars = ax.bar(x, df["downstream_check_rate"].tolist(), color=colors)
-    ax.set_xticks(list(x))
-    ax.set_xticklabels(labels, rotation=15, ha="right")
-    ax.set_ylabel("Downstream check rate (Maybe / total queries)")
-    ax.set_title("Exp 6a: Hot-positive workload downstream checks")
-    ax.set_ylim(0, 1)
-    if "downstream_reduction_pct" in df.columns:
-        for i, row in df.iterrows():
-            if row["filter_type"] != "bloom_filter":
-                ax.text(bars[i].get_x() + bars[i].get_width() / 2,
-                        bars[i].get_height() + 0.02,
-                        f"{row['downstream_reduction_pct']:.1f}% fewer checks",
-                        ha="center", va="bottom", fontsize=8)
-    ax.grid(True, axis="y", alpha=0.3)
-    fig.tight_layout()
+        x = range(len(sub))
+        labels = [label_of(f) for f in sub["filter_type"]]
+        colors = [color_of(f) for f in sub["filter_type"]]
+        bars = ax.bar(x, sub["downstream_check_rate"].tolist(), color=colors)
+        ax.set_xticks(list(x))
+        ax.set_xticklabels(labels, rotation=15, ha="right")
+        ax.set_ylabel("Downstream check rate (Maybe / total queries)")
+        ax.set_title(query_model_label(model))
+        ax.set_ylim(0, 1)
+        if "downstream_reduction_pct" in sub.columns:
+            for i, row in sub.reset_index(drop=True).iterrows():
+                if row["filter_type"] != "bloom_filter":
+                    ax.text(bars[i].get_x() + bars[i].get_width() / 2,
+                            bars[i].get_height() + 0.02,
+                            f"{row['downstream_reduction_pct']:.1f}% fewer checks",
+                            ha="center", va="bottom", fontsize=8)
+        ax.grid(True, axis="y", alpha=0.3)
+    fig.suptitle("Exp 6a: Hot-positive downstream checks", fontsize=12)
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
     savefig(fig, "exp6a_downstream_checks.png")
 
-    # 6b: Positive query outcome breakdown
-    fig, ax = plt.subplots(figsize=(7, 4))
-    true_vals = df["pos_true"].tolist()
-    maybe_vals = df["pos_maybe"].tolist()
-    false_vals = df["pos_false"].tolist()
-    ax.bar(x, true_vals, color="#27ae60", label="True")
-    ax.bar(x, maybe_vals, bottom=true_vals, color="#f39c12", label="Maybe")
-    ax.bar(x, false_vals,
-           bottom=[t + m for t, m in zip(true_vals, maybe_vals)],
-           color="#e74c3c", label="False")
-    ax.set_xticks(list(x))
-    ax.set_xticklabels(labels, rotation=15, ha="right")
-    ax.set_ylabel("Positive query count")
-    ax.set_title("Exp 6b: Positive query outcomes (count-weighted hot keys)")
-    ax.legend()
-    ax.grid(True, axis="y", alpha=0.3)
-    fig.tight_layout()
+    # 6b: Positive query outcome breakdown (per query model)
+    fig, axes = plt.subplots(1, len(models), figsize=(7 * len(models), 4), sharey=True)
+    if len(models) == 1:
+        axes = [axes]
+    for ax, model in zip(axes, models):
+        sub = df[(df["query_model"] == model) & (df["filter_type"].isin(order))].copy()
+        sub["filter_type"] = pd.Categorical(sub["filter_type"], categories=order, ordered=True)
+        sub = sub.sort_values("filter_type")
+
+        x = range(len(sub))
+        labels = [label_of(f) for f in sub["filter_type"]]
+        true_vals = sub["pos_true"].tolist()
+        maybe_vals = sub["pos_maybe"].tolist()
+        false_vals = sub["pos_false"].tolist()
+        ax.bar(x, true_vals, color="#27ae60", label="True")
+        ax.bar(x, maybe_vals, bottom=true_vals, color="#f39c12", label="Maybe")
+        ax.bar(x, false_vals,
+               bottom=[t + m for t, m in zip(true_vals, maybe_vals)],
+               color="#e74c3c", label="False")
+        ax.set_xticks(list(x))
+        ax.set_xticklabels(labels, rotation=15, ha="right")
+        ax.set_ylabel("Positive query count")
+        ax.set_title(query_model_label(model))
+        ax.grid(True, axis="y", alpha=0.3)
+    axes[0].legend()
+    fig.suptitle("Exp 6b: Positive query outcomes", fontsize=12)
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
     savefig(fig, "exp6b_positive_query_breakdown.png")
 
 
@@ -435,41 +466,52 @@ def plot_exp7():
         print("Skipping exp7 (no CSV)")
         return
     df = pd.read_csv(path)
+    if "query_model" not in df.columns:
+        df["query_model"] = "count_weighted"
+
     order = ["bloom_filter", "stashed_lp_neg"]
-    present = [f for f in order if f in set(df["filter_type"])]
-    df = df.set_index("filter_type").loc[present].reset_index()
+    preferred_models = ["zipf", "count_weighted"]
+    models = [m for m in preferred_models if m in set(df["query_model"])]
+    for m in sorted(set(df["query_model"])):
+        if m not in models:
+            models.append(m)
 
-    x = range(len(df))
-    labels = [label_of(f) for f in df["filter_type"]]
-    colors = [color_of(f) for f in df["filter_type"]]
+    fig, axes = plt.subplots(len(models), 2, figsize=(11, 4 * len(models)), squeeze=False)
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+    for row_idx, model in enumerate(models):
+        sub = df[(df["query_model"] == model) & (df["filter_type"].isin(order))].copy()
+        sub["filter_type"] = pd.Categorical(sub["filter_type"], categories=order, ordered=True)
+        sub = sub.sort_values("filter_type")
 
-    # 7a: Eval FPR comparison
-    bars = axes[0].bar(x, df["fpr"].tolist(), color=colors)
-    axes[0].set_xticks(list(x))
-    axes[0].set_xticklabels(labels, rotation=15, ha="right")
-    axes[0].set_ylabel("False positive rate")
-    axes[0].set_title("Exp 7a: Eval FPR after warm-up")
-    axes[0].grid(True, axis="y", alpha=0.3)
-    if "fpr_reduction_pct" in df.columns:
-        for i, row in df.iterrows():
-            if row["filter_type"] == "stashed_lp_neg":
-                axes[0].text(bars[i].get_x() + bars[i].get_width() / 2,
-                             bars[i].get_height() + 0.001,
-                             f"{row['fpr_reduction_pct']:.1f}% vs plain",
-                             ha="center", va="bottom", fontsize=8)
+        x = range(len(sub))
+        labels = [label_of(f) for f in sub["filter_type"]]
+        colors = [color_of(f) for f in sub["filter_type"]]
 
-    # 7b: False-negative rate on positives
-    axes[1].bar(x, df["false_negative_rate"].tolist(), color=colors)
-    axes[1].set_xticks(list(x))
-    axes[1].set_xticklabels(labels, rotation=15, ha="right")
-    axes[1].set_ylabel("False negative rate")
-    axes[1].set_title("Exp 7b: Positive-set false negatives")
-    axes[1].grid(True, axis="y", alpha=0.3)
+        # 7a: Eval FPR comparison
+        bars = axes[row_idx, 0].bar(x, sub["fpr"].tolist(), color=colors)
+        axes[row_idx, 0].set_xticks(list(x))
+        axes[row_idx, 0].set_xticklabels(labels, rotation=15, ha="right")
+        axes[row_idx, 0].set_ylabel("False positive rate")
+        axes[row_idx, 0].set_title(f"{query_model_label(model)}: Eval FPR")
+        axes[row_idx, 0].grid(True, axis="y", alpha=0.3)
+        if "fpr_reduction_pct" in sub.columns:
+            for i, row in sub.reset_index(drop=True).iterrows():
+                if row["filter_type"] == "stashed_lp_neg":
+                    axes[row_idx, 0].text(bars[i].get_x() + bars[i].get_width() / 2,
+                                          bars[i].get_height() + 0.001,
+                                          f"{row['fpr_reduction_pct']:.1f}% vs plain",
+                                          ha="center", va="bottom", fontsize=8)
 
-    fig.suptitle("Exp 7: Repeated-negative warm-up (data-derived queries)", fontsize=12)
-    fig.tight_layout()
+        # 7b: False-negative rate on positives
+        axes[row_idx, 1].bar(x, sub["false_negative_rate"].tolist(), color=colors)
+        axes[row_idx, 1].set_xticks(list(x))
+        axes[row_idx, 1].set_xticklabels(labels, rotation=15, ha="right")
+        axes[row_idx, 1].set_ylabel("False negative rate")
+        axes[row_idx, 1].set_title(f"{query_model_label(model)}: Positive-set FNR")
+        axes[row_idx, 1].grid(True, axis="y", alpha=0.3)
+
+    fig.suptitle("Exp 7: Repeated-negative warm-up comparison", fontsize=12)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
     savefig(fig, "exp7_repeated_negative_warmup.png")
 
 
