@@ -8,6 +8,7 @@
 //   bool do_insert(const Key& key)  — returns true if stored, false if full
 //   bool do_query(const Key& key) const
 //   size_t do_size_bits() const     — number of bits consumed
+//   bool do_is_probabilistic() const — whether stash membership can be false-positive
 template <typename Derived, typename Key>
 class StashSet {
    public:
@@ -20,5 +21,10 @@ class StashSet {
     // Number of bits this stash occupies.
     [[nodiscard]] size_t size_bits() const {
         return static_cast<const Derived*>(this)->do_size_bits();
+    }
+
+    // True if stash lookup can return false positives (e.g., Bloom-filter stash).
+    [[nodiscard]] bool is_probabilistic() const {
+        return static_cast<const Derived*>(this)->do_is_probabilistic();
     }
 };

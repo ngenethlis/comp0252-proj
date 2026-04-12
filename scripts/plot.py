@@ -27,7 +27,7 @@ FILTER_COLORS = {
 FILTER_LABELS = {
     "baseline_bf": "Plain BF (baseline)",
     "bloom_filter": "Plain BF",
-    "partitioned_bf": "Partitioned BF",
+    "partitioned_bf": "Blocked BF",
     "bf_stash": "BF stash",
     "lp_stash": "LP stash",
     "stashed_bf_pos": "Stashed BF (BF, +ve)",
@@ -558,6 +558,230 @@ def plot_exp7():
 
 
 # -------------------------------------------------------------------------
+# Exp 8: Warm-up budget sweep
+# -------------------------------------------------------------------------
+def plot_exp8():
+    path = os.path.join(RESULTS_DIR, "exp8.csv")
+    if not os.path.exists(path):
+        print("Skipping exp8 (no CSV)")
+        return
+    df = pd.read_csv(path)
+    if "query_model" not in df.columns or "scenario" not in df.columns:
+        print("Skipping exp8 (unexpected schema)")
+        return
+
+    st = df[df["filter_type"] == "stashed_lp_neg"].copy()
+    if st.empty:
+        print("Skipping exp8 (no stashed rows)")
+        return
+
+    st["warmup_queries"] = st["warmup_queries"].astype(int)
+
+    preferred_models = ["zipf", "count_weighted"]
+    preferred_scenarios = ["in_dist", "cross_pool", "shifted_distribution"]
+    models = [m for m in preferred_models if m in set(st["query_model"])]
+    for m in sorted(set(st["query_model"])):
+        if m not in models:
+            models.append(m)
+    scenarios = [s for s in preferred_scenarios if s in set(st["scenario"])]
+    for s in sorted(set(st["scenario"])):
+        if s not in scenarios:
+            scenarios.append(s)
+
+    # 8a: FPR reduction vs warm-up budget.
+    fig, axes = plt.subplots(1, len(models), figsize=(7 * len(models), 4), sharey=True)
+    if len(models) == 1:
+        axes = [axes]
+    scenario_styles = {
+        "in_dist": {"color": color_of("stashed_lp_neg"), "linestyle": "-", "marker": "o"},
+        "cross_pool": {
+            "color": color_of("stashed_bf_neg"),
+            "linestyle": "--",
+            "marker": "s",
+        },
+        "shifted_distribution": {
+            "color": color_of("partitioned_bf"),
+            "linestyle": "-.",
+            "marker": "^",
+        },
+    }
+    for ax, model in zip(axes, models):
+        sub_model = st[st["query_model"] == model]
+        for sc in scenarios:
+            sub = sub_model[sub_model["scenario"] == sc].sort_values("warmup_queries")
+            if sub.empty:
+                continue
+            style = scenario_styles.get(sc, {"color": "#999999", "linestyle": "-", "marker": "o"})
+            ax.plot(
+                sub["warmup_queries"],
+                sub["fpr_reduction_pct"],
+                label=scenario_label(sc),
+                color=style["color"],
+                linestyle=style["linestyle"],
+                marker=style["marker"],
+            )
+        ax.axhline(0, color=color_of("baseline_bf"), linestyle=":",
+                   label="No net change vs baseline")
+        ax.set_xscale("symlog", linthresh=1000)
+        ax.set_xlabel("Warm-up queries")
+        ax.set_ylabel("FPR reduction vs baseline (%)")
+        ax.set_title(query_model_label(model))
+        ax.grid(True, which="both", alpha=0.3)
+        ax.legend(fontsize=8)
+
+    fig.suptitle("Exp 8a: Benefit vs warm-up budget", fontsize=12)
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    savefig(fig, "exp8a_warmup_budget_fpr_reduction.png")
+
+    # 8b: FNR and stash occupancy vs warm-up budget (in-distribution only).
+    fig, axes = plt.subplots(1, len(models), figsize=(7 * len(models), 4), sharey=False)
+    if len(models) == 1:
+        axes = [axes]
+    for ax, model in zip(axes, models):
+        sub = st[(st["query_model"] == model) & (st["scenario"] == "in_dist")].sort_values(
+            "warmup_queries")
+        if sub.empty:
+            continue
+        line_fnr = ax.plot(sub["warmup_queries"], sub["false_negative_rate"], "o-",
+                color=color_of("stashed_bf_neg"),
+                label="False negative rate")
+        ax.set_xscale("symlog", linthresh=1000)
+        ax.set_xlabel("Warm-up queries")
+        ax.set_ylabel("False negative rate", color=color_of("stashed_bf_neg"))
+        ax.tick_params(axis="y", labelcolor=color_of("stashed_bf_neg"))
+        ax.set_title(query_model_label(model) + " (in-dist)")
+        ax.grid(True, which="both", alpha=0.3)
+
+        ax2 = ax.twinx()
+        line_stash = ax2.plot(sub["warmup_queries"], sub["stash_count"], "s--",
+                 color=color_of("stashed_lp_pos"),
+                 label="Stash count")
+        ax2.set_ylabel("Stash count", color=color_of("stashed_lp_pos"))
+        ax2.tick_params(axis="y", labelcolor=color_of("stashed_lp_pos"))
+
+        handles = [line_fnr[0], line_stash[0]]
+        labels = [h.get_label() for h in handles]
+        ax.legend(handles, labels, fontsize=8, loc="best")
+
+    fig.suptitle("Exp 8b: Safety and capacity vs warm-up budget", fontsize=12)
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    savefig(fig, "exp8b_warmup_budget_fnr_stash.png")
+
+
+# -------------------------------------------------------------------------
+# Transfer decision boundary: where LP negative stash helps vs hurts
+# -------------------------------------------------------------------------
+def plot_decision_boundary():
+    path7 = os.path.join(RESULTS_DIR, "exp7.csv")
+    path8 = os.path.join(RESULTS_DIR, "exp8.csv")
+    if not os.path.exists(path7) or not os.path.exists(path8):
+        print("Skipping decision boundary plot (need exp7.csv and exp8.csv)")
+        return
+
+    df7 = pd.read_csv(path7)
+    df8 = pd.read_csv(path8)
+
+    sim_map = {
+        "cross_pool": 0.0,
+        "shifted_distribution": 0.5,
+        "in_dist": 1.0,
+    }
+    scenario_order = ["cross_pool", "shifted_distribution", "in_dist"]
+
+    points = []
+
+    # Exp7: fixed warm-up budget points.
+    st7 = df7[df7["filter_type"] == "stashed_lp_neg"].copy()
+    for _, row in st7.iterrows():
+        scenario = row.get("scenario", "in_dist")
+        points.append({
+            "source": "exp7",
+            "query_model": row.get("query_model", "count_weighted"),
+            "scenario": scenario,
+            "x": sim_map.get(scenario, 0.0),
+            "y": float(row.get("fpr_reduction_pct", 0.0)),
+            "fnr": float(row.get("false_negative_rate", 0.0)),
+        })
+
+    # Exp8: use the max warm-up point as the post-adaptation endpoint.
+    st8 = df8[df8["filter_type"] == "stashed_lp_neg"].copy()
+    if not st8.empty and "warmup_queries" in st8.columns:
+        st8["warmup_queries"] = st8["warmup_queries"].astype(float)
+        idx = st8.groupby(["query_model", "scenario"])["warmup_queries"].idxmax()
+        end8 = st8.loc[idx]
+        for _, row in end8.iterrows():
+            scenario = row.get("scenario", "in_dist")
+            points.append({
+                "source": "exp8_end",
+                "query_model": row.get("query_model", "count_weighted"),
+                "scenario": scenario,
+                "x": sim_map.get(scenario, 0.0),
+                "y": float(row.get("fpr_reduction_pct", 0.0)),
+                "fnr": float(row.get("false_negative_rate", 0.0)),
+            })
+
+    if not points:
+        print("Skipping decision boundary plot (no points)")
+        return
+
+    fig, ax = plt.subplots(figsize=(8.5, 5))
+    source_markers = {"exp7": "o", "exp8_end": "^"}
+    source_labels = {
+        "exp7": "Exp7 fixed warm-up",
+        "exp8_end": "Exp8 max warm-up",
+    }
+
+    # Plot by source with FNR as color.
+    for source in ["exp7", "exp8_end"]:
+        sub = [p for p in points if p["source"] == source]
+        if not sub:
+            continue
+        xs = [p["x"] for p in sub]
+        ys = [p["y"] for p in sub]
+        cs = [p["fnr"] for p in sub]
+        sc = ax.scatter(
+            xs,
+            ys,
+            c=cs,
+            cmap="viridis",
+            vmin=0.0,
+            vmax=max(1e-9, max([p["fnr"] for p in points])),
+            s=90,
+            marker=source_markers[source],
+            edgecolor="#222222",
+            linewidth=0.5,
+            label=source_labels[source],
+        )
+
+    # Annotate each point with compact model/scenario tag.
+    model_short = {"count_weighted": "cw", "zipf": "zipf"}
+    scen_short = {
+        "in_dist": "in",
+        "shifted_distribution": "shift",
+        "cross_pool": "cross",
+    }
+    for p in points:
+        tag = f"{model_short.get(p['query_model'], str(p['query_model']))}/{scen_short.get(p['scenario'], str(p['scenario']))}"
+        ax.annotate(tag, (p["x"], p["y"]), textcoords="offset points", xytext=(5, 4), fontsize=8)
+
+    ax.axhline(0.0, color=color_of("baseline_bf"), linestyle=":", label="No net gain")
+    ax.set_xticks([sim_map[s] for s in scenario_order])
+    ax.set_xticklabels([scenario_label(s) for s in scenario_order])
+    ax.set_xlabel("Transfer similarity proxy")
+    ax.set_ylabel("FPR reduction vs baseline (%)")
+    ax.set_title("LP Negative Stash Decision Boundary")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8, loc="best")
+
+    # Reuse the last scatter handle for colorbar scale.
+    cbar = fig.colorbar(sc, ax=ax)
+    cbar.set_label("False negative rate")
+
+    fig.tight_layout()
+    savefig(fig, "decision_boundary_transfer.png")
+
+
+# -------------------------------------------------------------------------
 # Benchmarks
 # -------------------------------------------------------------------------
 def plot_bench():
@@ -617,6 +841,8 @@ def main():
         "exp5": plot_exp5,
         "exp6": plot_exp6,
         "exp7": plot_exp7,
+        "exp8": plot_exp8,
+        "decision": plot_decision_boundary,
         "bench": plot_bench,
     }
 

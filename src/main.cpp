@@ -20,7 +20,8 @@ static constexpr size_t kTotalBits = 100000;
 static constexpr size_t kNumHashes = 7;
 static constexpr size_t kNumInserts = 5000;
 static constexpr size_t kNumNeg = 50000;
-static constexpr uint64_t kSeed = 42;
+static constexpr uint64_t kDefaultSeed = 42;
+static uint64_t gSeed = kDefaultSeed;
 
 // ---------------------------------------------------------------------------
 // CSV helpers
@@ -138,7 +139,7 @@ static void run_exp1_certainty() {
         "neg_true,neg_maybe,neg_false,fpr,false_certainty_rate,"
         "stash_count");
 
-    auto data = generate_data(kNumInserts, 0, kNumNeg, kSeed);
+    auto data = generate_data(kNumInserts, 0, kNumNeg, gSeed);
     size_t stash_bits = kTotalBits / 5;
     size_t primary_bits = kTotalBits - stash_bits;
     size_t lp_capacity = stash_bits / 64;
@@ -210,7 +211,7 @@ static void run_exp2_negative_stash() {
         "experiment,stash_type,scenario,stash_fraction,"
         "baseline_fpr,stashed_fpr,fpr_reduction_pct,false_negative_rate,stash_count");
 
-    auto data = generate_data(kNumInserts, kNumNeg, kNumNeg, kSeed);
+    auto data = generate_data(kNumInserts, kNumNeg, kNumNeg, gSeed);
     size_t practical_warmup_count = data.test_negatives.size() / 2;
     std::vector<uint64_t> practical_scan(data.test_negatives.begin(),
                                          data.test_negatives.begin() + practical_warmup_count);
@@ -311,11 +312,12 @@ static void run_exp3_load() {
     size_t lp_capacity = stash_bits / 64;
     size_t collision_threshold = 3;
 
-    size_t n_values[] = {500, 1000, 2000, 3000, 5000, 7500, 10000, 15000, 20000};
+    size_t n_values[] = {500, 1000, 2000, 3000, 5000, 7500, 10000, 15000,
+                         20000, 25000, 30000};
 
     for (size_t n : n_values) {
         std::cerr << "  n=" << n << "...\n";
-        auto data = generate_data(n, kNumNeg, kNumNeg, kSeed);
+        auto data = generate_data(n, kNumNeg, kNumNeg, gSeed);
 
         // Plain BF
         {
@@ -326,7 +328,7 @@ static void run_exp3_load() {
             csv_row("exp3", "bloom_filter", n, measure_fpr(bf, data.test_negatives), 0.0, 0.0, 0.0,
                     0);
         }
-        // Partitioned BF
+        // Blocked BF baseline (implemented via PartitionedBloomFilter)
         {
             PartitionedBloomFilter pbf(kTotalBits, kNumHashes);
             for (uint64_t k : data.positives) {
@@ -413,7 +415,7 @@ static void run_exp4_stash_fraction() {
         "experiment,stash_type,stash_mode,stash_fraction,"
         "fpr,certainty_rate,false_certainty_rate,false_negative_rate,stash_count");
 
-    auto data = generate_data(kNumInserts, kNumNeg, kNumNeg, kSeed);
+    auto data = generate_data(kNumInserts, kNumNeg, kNumNeg, gSeed);
     size_t collision_threshold = 3;
 
     // Baseline
@@ -426,13 +428,17 @@ static void run_exp4_stash_fraction() {
                 0.0, 0);
     }
 
-    for (int frac_pct = 5; frac_pct <= 50; frac_pct += 5) {
-        double frac = frac_pct / 100.0;
-        size_t stash_bits = static_cast<size_t>(kTotalBits * frac);
-        size_t primary_bits = kTotalBits - stash_bits;
+    for (int frac_pct = 5; frac_pct <= 80; frac_pct += 5) {
+        double requested_frac = frac_pct / 100.0;
+        size_t stash_bits = static_cast<size_t>(kTotalBits * requested_frac);
         if (stash_bits == 0) {
             stash_bits = 1;
         }
+        if (stash_bits >= kTotalBits) {
+            stash_bits = kTotalBits - 1;
+        }
+        size_t primary_bits = kTotalBits - stash_bits;
+        double frac = static_cast<double>(stash_bits) / static_cast<double>(kTotalBits);
         size_t lp_capacity = stash_bits / 64;
         if (lp_capacity == 0) {
             lp_capacity = 1;
@@ -546,8 +552,8 @@ static void run_exp5_passwords(const std::string& password_file) {
     }
 
     size_t n_neg = std::max(n * 10, static_cast<size_t>(10000));
-    auto negatives = generate_random_strings(n_neg, 12, kSeed);
-    auto stash_negatives = generate_random_strings(n_neg, 14, kSeed + 1);
+    auto negatives = generate_random_strings(n_neg, 12, gSeed);
+    auto stash_negatives = generate_random_strings(n_neg, 14, gSeed + 1);
 
     // Plain BF
     {
@@ -569,7 +575,7 @@ static void run_exp5_passwords(const std::string& password_file) {
         csv_row("exp5", "bloom_filter", n, total_bits, 0, pos_maybe, pos_false, 0.0, 0, 0, 0, fpr,
                 0.0, 0);
     }
-    // Partitioned BF
+    // Blocked BF baseline (implemented via PartitionedBloomFilter)
     {
         PartitionedBloomFilter<std::string> pbf(total_bits, kNumHashes);
         for (const auto& pw : passwords) {
@@ -772,16 +778,16 @@ static void run_exp6_hot_positive(const std::string& password_file) {
     };
     std::vector<QueryModel> query_models;
     query_models.push_back(
-        {"count_weighted", sample_weighted_indices(pos_queries, password_counts, kSeed + 600),
-         sample_weighted_indices(neg_queries, negative_weights, kSeed + 601)});
+        {"count_weighted", sample_weighted_indices(pos_queries, password_counts, gSeed + 600),
+         sample_weighted_indices(neg_queries, negative_weights, gSeed + 601)});
     query_models.push_back(
         {"zipf",
          ranks_to_zero_based_indices(
-             generate_zipf_keys(pos_queries, 1.2, static_cast<uint64_t>(passwords.size()), kSeed + 602),
+             generate_zipf_keys(pos_queries, 1.2, static_cast<uint64_t>(passwords.size()), gSeed + 602),
              passwords.size()),
          ranks_to_zero_based_indices(generate_zipf_keys(neg_queries, 1.1,
                                                         static_cast<uint64_t>(negatives.size()),
-                                                        kSeed + 603),
+                                                        gSeed + 603),
                                      negatives.size())});
 
     csv_header(
@@ -976,16 +982,16 @@ static void run_exp7_repeated_negative(const std::string& password_file) {
     {
         QueryModel count_model;
         count_model.name = "count_weighted";
-        count_model.warmup_indices = sample_weighted_indices(warmup_queries, negative_weights, kSeed + 700);
+        count_model.warmup_indices = sample_weighted_indices(warmup_queries, negative_weights, gSeed + 700);
         count_model.scenarios.push_back(
             {"in_dist", &warmup_negatives,
-             sample_weighted_indices(eval_queries, negative_weights, kSeed + 701)});
+             sample_weighted_indices(eval_queries, negative_weights, gSeed + 701)});
         count_model.scenarios.push_back(
             {"cross_pool", &cross_pool_negatives,
-             sample_weighted_indices(eval_queries, negative_weights, kSeed + 702)});
+             sample_weighted_indices(eval_queries, negative_weights, gSeed + 702)});
         count_model.scenarios.push_back(
             {"shifted_distribution", &warmup_negatives,
-             sample_weighted_indices(eval_queries, shifted_negative_weights, kSeed + 703)});
+             sample_weighted_indices(eval_queries, shifted_negative_weights, gSeed + 703)});
         query_models.push_back(std::move(count_model));
     }
     {
@@ -993,25 +999,25 @@ static void run_exp7_repeated_negative(const std::string& password_file) {
         zipf_model.name = "zipf";
         zipf_model.warmup_indices = ranks_to_zero_based_indices(
             generate_zipf_keys(warmup_queries, 1.15, static_cast<uint64_t>(warmup_negatives.size()),
-                               kSeed + 710),
+                               gSeed + 710),
             warmup_negatives.size());
         zipf_model.scenarios.push_back(
             {"in_dist", &warmup_negatives,
              ranks_to_zero_based_indices(
                  generate_zipf_keys(eval_queries, 1.15, static_cast<uint64_t>(warmup_negatives.size()),
-                                    kSeed + 711),
+                                    gSeed + 711),
                  warmup_negatives.size())});
         zipf_model.scenarios.push_back(
             {"cross_pool", &cross_pool_negatives,
              ranks_to_zero_based_indices(
                  generate_zipf_keys(eval_queries, 1.15, static_cast<uint64_t>(cross_pool_negatives.size()),
-                                    kSeed + 712),
+                                    gSeed + 712),
                  cross_pool_negatives.size())});
         zipf_model.scenarios.push_back(
             {"shifted_distribution", &warmup_negatives,
              ranks_to_zero_based_indices(
                  generate_zipf_keys(eval_queries, 0.85, static_cast<uint64_t>(warmup_negatives.size()),
-                                    kSeed + 713),
+                                    gSeed + 713),
                  warmup_negatives.size())});
         query_models.push_back(std::move(zipf_model));
     }
@@ -1095,6 +1101,206 @@ static void run_exp7_repeated_negative(const std::string& password_file) {
     std::cerr << "  done.\n";
 }
 
+
+// ---------------------------------------------------------------------------
+// Experiment 8 — Warm-up budget sweep (negative LP stash)
+//
+// Measures how much warm-up traffic is needed before negative-stash benefits
+// saturate, and how this behaves under distribution shift.
+// ---------------------------------------------------------------------------
+static void run_exp8_warmup_budget(const std::string& password_file) {
+    std::cerr << "=== Exp 8: Warm-up budget sweep ===\n";
+
+    auto weighted_passwords = read_weighted_lines(password_file);
+    if (weighted_passwords.empty()) {
+        std::cerr << "  ERROR: no passwords loaded from " << password_file << "\n";
+        return;
+    }
+    std::vector<std::string> passwords;
+    std::vector<uint64_t> password_counts;
+    split_weighted_entries(weighted_passwords, &passwords, &password_counts);
+    constexpr size_t kMaxPasswords = 100000;
+    if (passwords.size() > kMaxPasswords) {
+        passwords.resize(kMaxPasswords);
+        password_counts.resize(kMaxPasswords);
+    }
+    std::cerr << "  loaded " << passwords.size() << " passwords from " << password_file
+              << " (weighted queries=" << sum_weights(password_counts) << ")\n";
+
+    size_t n = passwords.size();
+    size_t total_bits = n * 12;
+    constexpr double kStashFraction = 0.20;
+    size_t stash_bits = static_cast<size_t>(static_cast<double>(total_bits) * kStashFraction);
+    if (stash_bits == 0) {
+        stash_bits = 1;
+    }
+    size_t primary_bits = total_bits - stash_bits;
+    size_t lp_capacity = std::max<size_t>(1, stash_bits / 64);
+
+    size_t neg_pool_size = std::max<size_t>(5000, std::min<size_t>(30000, n));
+    auto warmup_negatives = make_data_derived_negatives(passwords, neg_pool_size, "negA");
+    auto cross_pool_negatives = make_data_derived_negatives(passwords, neg_pool_size, "negB");
+    auto negative_weights = derive_negative_weights(password_counts, warmup_negatives.size());
+    auto shifted_negative_weights = negative_weights;
+    std::reverse(shifted_negative_weights.begin(), shifted_negative_weights.end());
+
+    size_t eval_queries = std::max<size_t>(200000, neg_pool_size * 20);
+    std::vector<size_t> warmup_budgets = {
+        0,
+        std::max<size_t>(1000, eval_queries / 40),
+        std::max<size_t>(2000, eval_queries / 20),
+        std::max<size_t>(5000, eval_queries / 10),
+        std::max<size_t>(10000, eval_queries / 4),
+        std::max<size_t>(20000, eval_queries / 2),
+        eval_queries,
+        eval_queries * 2,
+    };
+
+    struct EvalScenario {
+        std::string name;
+        const std::vector<std::string>* eval_pool = nullptr;
+        std::vector<size_t> eval_indices;
+    };
+
+    struct QueryModel {
+        std::string name;
+        std::vector<EvalScenario> scenarios;
+    };
+
+    std::vector<QueryModel> query_models;
+    {
+        QueryModel count_model;
+        count_model.name = "count_weighted";
+        count_model.scenarios.push_back(
+            {"in_dist", &warmup_negatives,
+             sample_weighted_indices(eval_queries, negative_weights, gSeed + 900)});
+        count_model.scenarios.push_back(
+            {"cross_pool", &cross_pool_negatives,
+             sample_weighted_indices(eval_queries, negative_weights, gSeed + 901)});
+        count_model.scenarios.push_back(
+            {"shifted_distribution", &warmup_negatives,
+             sample_weighted_indices(eval_queries, shifted_negative_weights, gSeed + 902)});
+        query_models.push_back(std::move(count_model));
+    }
+    {
+        QueryModel zipf_model;
+        zipf_model.name = "zipf";
+        zipf_model.scenarios.push_back(
+            {"in_dist", &warmup_negatives,
+             ranks_to_zero_based_indices(
+                 generate_zipf_keys(eval_queries, 1.15,
+                                    static_cast<uint64_t>(warmup_negatives.size()), gSeed + 910),
+                 warmup_negatives.size())});
+        zipf_model.scenarios.push_back(
+            {"cross_pool", &cross_pool_negatives,
+             ranks_to_zero_based_indices(
+                 generate_zipf_keys(eval_queries, 1.15,
+                                    static_cast<uint64_t>(cross_pool_negatives.size()), gSeed + 911),
+                 cross_pool_negatives.size())});
+        zipf_model.scenarios.push_back(
+            {"shifted_distribution", &warmup_negatives,
+             ranks_to_zero_based_indices(
+                 generate_zipf_keys(eval_queries, 0.85,
+                                    static_cast<uint64_t>(warmup_negatives.size()), gSeed + 912),
+                 warmup_negatives.size())});
+        query_models.push_back(std::move(zipf_model));
+    }
+
+    csv_header(
+        "experiment,query_model,scenario,filter_type,n_passwords,total_bits,"
+        "stash_fraction,neg_pool_size,warmup_queries,eval_queries,"
+        "fpr,false_negative_rate,fpr_reduction_pct,stash_count");
+
+    for (const auto& model : query_models) {
+        for (const auto& scenario : model.scenarios) {
+            const auto& eval_pool = *scenario.eval_pool;
+
+            // Baseline for this model/scenario.
+            double baseline_fpr = 0.0;
+            {
+                BloomFilter<std::string> bf(total_bits, kNumHashes);
+                for (const auto& pw : passwords) {
+                    bf.insert(pw);
+                }
+
+                size_t fp = 0;
+                for (size_t idx : scenario.eval_indices) {
+                    if (bf.query(eval_pool[idx])) {
+                        ++fp;
+                    }
+                }
+                baseline_fpr = scenario.eval_indices.empty()
+                                   ? 0.0
+                                   : static_cast<double>(fp) /
+                                         static_cast<double>(scenario.eval_indices.size());
+
+                csv_row("exp8", model.name, scenario.name, "bloom_filter", n, total_bits, 0.0,
+                        eval_pool.size(), 0, scenario.eval_indices.size(), baseline_fpr, 0.0, 0.0,
+                        0);
+            }
+
+            // Sweep warm-up budgets.
+            for (size_t budget_idx = 0; budget_idx < warmup_budgets.size(); ++budget_idx) {
+                size_t warmup_queries = warmup_budgets[budget_idx];
+
+                std::vector<size_t> warmup_indices;
+                if (model.name == "count_weighted") {
+                    warmup_indices = sample_weighted_indices(
+                        warmup_queries, negative_weights,
+                        gSeed + 920 + static_cast<uint64_t>(budget_idx));
+                } else {
+                    warmup_indices = ranks_to_zero_based_indices(
+                        generate_zipf_keys(warmup_queries, 1.15,
+                                           static_cast<uint64_t>(warmup_negatives.size()),
+                                           gSeed + 940 + static_cast<uint64_t>(budget_idx)),
+                        warmup_negatives.size());
+                }
+
+                LinearProbingStash<std::string> stash(lp_capacity);
+                StashedBloomFilter<std::string, DefaultHashPolicy, LinearProbingStash<std::string>>
+                    sbf(primary_bits, kNumHashes, std::move(stash), 0, StashMode::Negative);
+                for (const auto& pw : passwords) {
+                    sbf.insert(pw);
+                }
+
+                for (size_t idx : warmup_indices) {
+                    sbf.insert_negative(warmup_negatives[idx]);
+                }
+
+                size_t fp_eval = 0;
+                for (size_t idx : scenario.eval_indices) {
+                    if (sbf.query_bool(eval_pool[idx])) {
+                        ++fp_eval;
+                    }
+                }
+                double fpr = scenario.eval_indices.empty()
+                                 ? 0.0
+                                 : static_cast<double>(fp_eval) /
+                                       static_cast<double>(scenario.eval_indices.size());
+
+                uint64_t pos_total = 0;
+                uint64_t pos_false = 0;
+                for (size_t i = 0; i < passwords.size(); ++i) {
+                    pos_total += password_counts[i];
+                    if (sbf.query(passwords[i]) == ProbBool::False) {
+                        pos_false += password_counts[i];
+                    }
+                }
+                double fnr = pos_total == 0
+                                 ? 0.0
+                                 : static_cast<double>(pos_false) / static_cast<double>(pos_total);
+                double reduction = baseline_fpr > 0 ? (1.0 - fpr / baseline_fpr) * 100.0 : 0.0;
+
+                csv_row("exp8", model.name, scenario.name, "stashed_lp_neg", n, total_bits,
+                        kStashFraction, eval_pool.size(), warmup_queries,
+                        scenario.eval_indices.size(), fpr, fnr, reduction, sbf.stash_count());
+            }
+        }
+    }
+
+    std::cerr << "  done.\n";
+}
+
 // ---------------------------------------------------------------------------
 // Demo: Interactive breached-password querier
 // ---------------------------------------------------------------------------
@@ -1155,7 +1361,21 @@ static void run_demo(const std::string& password_file) {
 // ---------------------------------------------------------------------------
 int main(int argc, char* argv[]) {
     std::string mode = (argc > 1) ? argv[1] : "all";
-    std::string password_file = (argc > 2) ? argv[2] : "data/breached_passwords.txt";
+    std::string password_file = "data/breached_passwords.txt";
+
+    for (int i = 2; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg.rfind("--seed=", 0) == 0) {
+            try {
+                gSeed = static_cast<uint64_t>(std::stoull(arg.substr(7)));
+            } catch (...) {
+                std::cerr << "WARNING: invalid seed argument '" << arg
+                          << "', using default seed=" << gSeed << "\n";
+            }
+        } else {
+            password_file = arg;
+        }
+    }
 
     if (mode == "exp1" || mode == "all") {
         run_exp1_certainty();
@@ -1177,6 +1397,9 @@ int main(int argc, char* argv[]) {
     }
     if (mode == "exp7" || mode == "all") {
         run_exp7_repeated_negative(password_file);
+    }
+    if (mode == "exp8" || mode == "all") {
+        run_exp8_warmup_budget(password_file);
     }
     if (mode == "demo") {
         run_demo(password_file);

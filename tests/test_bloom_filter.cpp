@@ -121,7 +121,7 @@ TEST(bloom_single_bit) {
 }
 
 // ===========================================================================
-// PartitionedBloomFilter tests
+// Blocked Bloom filter baseline tests (implemented via PartitionedBloomFilter)
 // ===========================================================================
 
 TEST(partitioned_bf_no_false_negatives) {
@@ -143,7 +143,7 @@ TEST(partitioned_bf_false_positive_rate) {
         if (pbf.query(i)) ++fp;
     }
     double fpr = static_cast<double>(fp) / test_count;
-    printf("    PartitionedBF FPR: %.4f\n", fpr);
+    printf("    BlockedBF (partitioned layout) FPR: %.4f\n", fpr);
     ASSERT_TRUE(fpr < 0.05);
     PASS("partitioned_bf_false_positive_rate");
 }
@@ -211,6 +211,12 @@ TEST(bf_stash_size_bits) {
     PASS("bf_stash_size_bits");
 }
 
+TEST(bf_stash_is_probabilistic) {
+    BloomFilterStash<uint64_t> stash(2048, 3);
+    ASSERT_TRUE(stash.is_probabilistic());
+    PASS("bf_stash_is_probabilistic");
+}
+
 // ===========================================================================
 // LinearProbingStash tests
 // ===========================================================================
@@ -256,6 +262,12 @@ TEST(lp_stash_size_bits) {
     LinearProbingStash<uint64_t> stash(10);
     ASSERT_TRUE(stash.size_bits() == 10 * 64);
     PASS("lp_stash_size_bits");
+}
+
+TEST(lp_stash_is_deterministic) {
+    LinearProbingStash<uint64_t> stash(10);
+    ASSERT_TRUE(!stash.is_probabilistic());
+    PASS("lp_stash_is_deterministic");
 }
 
 TEST(lp_stash_duplicate_insert_no_capacity_loss) {
@@ -310,11 +322,11 @@ TEST(stashed_bf_pos_no_false_negatives) {
 
 TEST(stashed_bf_pos_query_returns_prob_bool) {
     BloomFilterStash<uint64_t> stash(2000, 5);
-    StashedBloomFilter sbf(8000, 7, std::move(stash), 5, StashMode::Positive);
+    StashedBloomFilter sbf(8000, 7, std::move(stash), 0, StashMode::Positive);
 
     sbf.insert(42);
     ProbBool result = sbf.query(42);
-    ASSERT_TRUE(result == ProbBool::True || result == ProbBool::Maybe);
+    ASSERT_TRUE(result == ProbBool::Maybe);
     PASS("stashed_bf_pos_query_returns_prob_bool");
 }
 

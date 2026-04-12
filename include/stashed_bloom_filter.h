@@ -91,9 +91,10 @@ class StashedBloomFilter {
         bool in_primary = _primary.query(key);
 
         if (_mode == StashMode::Positive) {
-            // Stash holds "definitely yes" keys.
+            // Positive mode semantics depend on stash determinism.
+            // Deterministic stash hit => True, probabilistic stash hit => Maybe.
             if (in_stash) {
-                return ProbBool::True;
+                return _stash.is_probabilistic() ? ProbBool::Maybe : ProbBool::True;
             }
             if (in_primary) {
                 return ProbBool::Maybe;

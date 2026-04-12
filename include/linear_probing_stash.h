@@ -57,6 +57,8 @@ class LinearProbingStash : public StashSet<LinearProbingStash<Key, HashPolicy>, 
 
     [[nodiscard]] size_t do_size_bits() const { return _capacity * 64; }
 
+    [[nodiscard]] bool do_is_probabilistic() const { return false; }
+
     [[nodiscard]] size_t count() const { return _count; }
     [[nodiscard]] size_t capacity() const { return _capacity; }
 

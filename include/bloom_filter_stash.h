@@ -21,6 +21,8 @@ class BloomFilterStash : public StashSet<BloomFilterStash<Key, HashPolicy>, Key>
 
     [[nodiscard]] size_t do_size_bits() const { return _bf.num_bits(); }
 
+    [[nodiscard]] bool do_is_probabilistic() const { return true; }
+
     [[nodiscard]] const BloomFilter<Key, HashPolicy>& bloom_filter() const { return _bf; }
 
    private:
