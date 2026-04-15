@@ -153,6 +153,15 @@ static void run_exp1_certainty() {
         double fpr = measure_fpr(bf, data.test_negatives);
         csv_row("exp1", "baseline_bf", "-", 0, kNumInserts, 0, 0.0, 0, 0, 0, fpr, 0.0, 0);
     }
+    // Baseline blocked BF (same interface, different layout)
+    {
+        BlockedBloomFilter blocked_bf(kTotalBits, kNumHashes);
+        for (uint64_t k : data.positives) {
+            blocked_bf.insert(k);
+        }
+        double fpr = measure_fpr(blocked_bf, data.test_negatives);
+        csv_row("exp1", "blocked_bf", "-", 0, kNumInserts, 0, 0.0, 0, 0, 0, fpr, 0.0, 0);
+    }
 
     for (size_t t = 0; t <= kNumHashes; ++t) {
         // BF stash — positive mode
@@ -229,6 +238,16 @@ static void run_exp2_negative_stash() {
     double baseline_fpr = measure_fpr(baseline_bf, practical_eval);
 
     csv_row("exp2", "baseline_bf", "-", 0.0, baseline_fpr, baseline_fpr, 0.0, 0.0, 0);
+    {
+        BlockedBloomFilter<uint64_t> blocked_bf(kTotalBits, kNumHashes);
+        for (uint64_t k : data.positives) {
+            blocked_bf.insert(k);
+        }
+        double blocked_fpr = measure_fpr(blocked_bf, practical_eval);
+        double blocked_reduction = baseline_fpr > 0 ? (1.0 - blocked_fpr / baseline_fpr) * 100.0 : 0.0;
+        csv_row("exp2", "blocked_bf", "-", 0.0, baseline_fpr, blocked_fpr, blocked_reduction, 0.0,
+                0);
+    }
 
     for (int frac_pct = 5; frac_pct <= 50; frac_pct += 5) {
         double frac = frac_pct / 100.0;
@@ -328,9 +347,9 @@ static void run_exp3_load() {
             csv_row("exp3", "bloom_filter", n, measure_fpr(bf, data.test_negatives), 0.0, 0.0, 0.0,
                     0);
         }
-        // Blocked BF baseline (implemented via PartitionedBloomFilter)
+        // Blocked BF baseline (implemented via BlockedBloomFilter)
         {
-            PartitionedBloomFilter pbf(kTotalBits, kNumHashes);
+            BlockedBloomFilter pbf(kTotalBits, kNumHashes);
             for (uint64_t k : data.positives) {
                 pbf.insert(k);
             }
@@ -426,6 +445,14 @@ static void run_exp4_stash_fraction() {
         }
         csv_row("exp4", "baseline_bf", "-", 0.0, measure_fpr(bf, data.test_negatives), 0.0, 0.0,
                 0.0, 0);
+    }
+    {
+        BlockedBloomFilter blocked_bf(kTotalBits, kNumHashes);
+        for (uint64_t k : data.positives) {
+            blocked_bf.insert(k);
+        }
+        csv_row("exp4", "blocked_bf", "-", 0.0, measure_fpr(blocked_bf, data.test_negatives), 0.0,
+                0.0, 0.0, 0);
     }
 
     for (int frac_pct = 5; frac_pct <= 80; frac_pct += 5) {
@@ -575,9 +602,9 @@ static void run_exp5_passwords(const std::string& password_file) {
         csv_row("exp5", "bloom_filter", n, total_bits, 0, pos_maybe, pos_false, 0.0, 0, 0, 0, fpr,
                 0.0, 0);
     }
-    // Blocked BF baseline (implemented via PartitionedBloomFilter)
+    // Blocked BF baseline (implemented via BlockedBloomFilter)
     {
-        PartitionedBloomFilter<std::string> pbf(total_bits, kNumHashes);
+        BlockedBloomFilter<std::string> pbf(total_bits, kNumHashes);
         for (const auto& pw : passwords) {
             pbf.insert(pw);
         }
@@ -834,14 +861,60 @@ static void run_exp6_hot_positive(const std::string& password_file) {
                                            ? static_cast<double>(pos_maybe + neg_maybe) /
                                                  static_cast<double>(total_queries)
                                            : 0.0;
-            double fpr =
+            double baseline_fpr =
                 model.neg_indices.empty()
                     ? 0.0
                     : static_cast<double>(neg_maybe) / static_cast<double>(model.neg_indices.size());
 
             csv_row("exp6", model.name, "bloom_filter", n, total_bits, model.pos_indices.size(),
                     model.neg_indices.size(), 0, pos_maybe, pos_false, 0, neg_maybe, neg_false, 0.0,
-                    fpr, 0.0, baseline_downstream_rate, 0.0, 0);
+                    baseline_fpr, 0.0, baseline_downstream_rate, 0.0, 0);
+        }
+
+        // Blocked BF baseline
+        {
+            BlockedBloomFilter<std::string> blocked_bf(total_bits, kNumHashes);
+            for (const auto& pw : passwords) {
+                blocked_bf.insert(pw);
+            }
+
+            size_t pos_maybe = 0;
+            size_t pos_false = 0;
+            for (size_t idx : model.pos_indices) {
+                if (blocked_bf.query(passwords[idx])) {
+                    ++pos_maybe;
+                } else {
+                    ++pos_false;
+                }
+            }
+
+            size_t neg_maybe = 0;
+            size_t neg_false = 0;
+            for (size_t idx : model.neg_indices) {
+                if (blocked_bf.query(negatives[idx])) {
+                    ++neg_maybe;
+                } else {
+                    ++neg_false;
+                }
+            }
+
+            size_t total_queries = model.pos_indices.size() + model.neg_indices.size();
+            double downstream_rate = total_queries > 0
+                                         ? static_cast<double>(pos_maybe + neg_maybe) /
+                                               static_cast<double>(total_queries)
+                                         : 0.0;
+            double fpr =
+                model.neg_indices.empty()
+                    ? 0.0
+                    : static_cast<double>(neg_maybe) / static_cast<double>(model.neg_indices.size());
+            double downstream_reduction = baseline_downstream_rate > 0
+                                              ? (1.0 - downstream_rate / baseline_downstream_rate) *
+                                                    100.0
+                                              : 0.0;
+
+            csv_row("exp6", model.name, "partitioned_bf", n, total_bits, model.pos_indices.size(),
+                    model.neg_indices.size(), 0, pos_maybe, pos_false, 0, neg_maybe, neg_false, 0.0,
+                    fpr, 0.0, downstream_rate, downstream_reduction, 0);
         }
 
         // Stashed BF with LP stash in positive mode
@@ -1056,6 +1129,31 @@ static void run_exp7_repeated_negative(const std::string& password_file) {
                         baseline_fpr, 0.0, 0.0, 0);
             }
 
+            // Blocked BF baseline on this evaluation stream.
+            {
+                BlockedBloomFilter<std::string> blocked_bf(total_bits, kNumHashes);
+                for (const auto& pw : passwords) {
+                    blocked_bf.insert(pw);
+                }
+
+                size_t fp = 0;
+                for (size_t idx : scenario.eval_indices) {
+                    if (blocked_bf.query(eval_pool[idx])) {
+                        ++fp;
+                    }
+                }
+                double blocked_fpr = scenario.eval_indices.empty()
+                                         ? 0.0
+                                         : static_cast<double>(fp) /
+                                               static_cast<double>(scenario.eval_indices.size());
+                double blocked_reduction =
+                    baseline_fpr > 0 ? (1.0 - blocked_fpr / baseline_fpr) * 100.0 : 0.0;
+
+                csv_row("exp7", model.name, scenario.name, "partitioned_bf", n, total_bits, 0.0,
+                        eval_pool.size(), model.warmup_indices.size(), scenario.eval_indices.size(),
+                        blocked_fpr, 0.0, blocked_reduction, 0);
+            }
+
             // LP negative stash with warm-up then this scenario's evaluation stream.
             {
                 LinearProbingStash<std::string> stash(lp_capacity);
@@ -1237,6 +1335,29 @@ static void run_exp8_warmup_budget(const std::string& password_file) {
                 csv_row("exp8", model.name, scenario.name, "bloom_filter", n, total_bits, 0.0,
                         eval_pool.size(), 0, scenario.eval_indices.size(), baseline_fpr, 0.0, 0.0,
                         0);
+            }
+            {
+                BlockedBloomFilter<std::string> blocked_bf(total_bits, kNumHashes);
+                for (const auto& pw : passwords) {
+                    blocked_bf.insert(pw);
+                }
+
+                size_t fp = 0;
+                for (size_t idx : scenario.eval_indices) {
+                    if (blocked_bf.query(eval_pool[idx])) {
+                        ++fp;
+                    }
+                }
+                double blocked_fpr = scenario.eval_indices.empty()
+                                         ? 0.0
+                                         : static_cast<double>(fp) /
+                                               static_cast<double>(scenario.eval_indices.size());
+                double blocked_reduction =
+                    baseline_fpr > 0 ? (1.0 - blocked_fpr / baseline_fpr) * 100.0 : 0.0;
+
+                csv_row("exp8", model.name, scenario.name, "partitioned_bf", n, total_bits, 0.0,
+                        eval_pool.size(), 0, scenario.eval_indices.size(), blocked_fpr, 0.0,
+                        blocked_reduction, 0);
             }
 
             // Sweep warm-up budgets.

@@ -78,10 +78,10 @@ static void bench_insert() {
             });
             csv_row("insert", "bloom_filter", n, ns, ns / n);
         }
-        // Blocked BF baseline (implemented via PartitionedBloomFilter)
+        // Blocked BF baseline (implemented via BlockedBloomFilter)
         {
             double ns = time_ns([&] {
-                PartitionedBloomFilter pbf(kTotalBits, kNumHashes);
+                BlockedBloomFilter pbf(kTotalBits, kNumHashes);
                 for (uint64_t k : keys) {
                     pbf.insert(k);
                 }
@@ -146,9 +146,9 @@ static void bench_query_positive() {
             });
             csv_row("query_pos", "bloom_filter", n, ns, ns / n);
         }
-        // Blocked BF baseline (implemented via PartitionedBloomFilter)
+        // Blocked BF baseline (implemented via BlockedBloomFilter)
         {
-            PartitionedBloomFilter pbf(kTotalBits, kNumHashes);
+            BlockedBloomFilter pbf(kTotalBits, kNumHashes);
             for (uint64_t k : keys) {
                 pbf.insert(k);
             }
@@ -224,9 +224,9 @@ static void bench_query_negative() {
             });
             csv_row("query_neg", "bloom_filter", n, ns, ns / n);
         }
-        // Blocked BF baseline (implemented via PartitionedBloomFilter)
+        // Blocked BF baseline (implemented via BlockedBloomFilter)
         {
-            PartitionedBloomFilter pbf(kTotalBits, kNumHashes);
+            BlockedBloomFilter pbf(kTotalBits, kNumHashes);
             for (uint64_t k : keys) {
                 pbf.insert(k);
             }

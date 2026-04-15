@@ -23,7 +23,7 @@ cmake -B build && cmake --build build
 ```
 include/                   Header-only library (all templates, no .cpp files)
   bloom_filter.h             BloomFilter<Key, HashPolicy> + DefaultHashPolicy
-  partitioned_bloom_filter.h PartitionedBloomFilter<Key, HashPolicy> (blocked BF baseline)
+  partitioned_bloom_filter.h BlockedBloomFilter<Key, HashPolicy> (blocked BF baseline)
   prob_bool.h                ProbBool enum {True, Maybe, False}
   stash_set.h                StashSet CRTP interface
   bloom_filter_stash.h       BloomFilterStash (secondary BF as stash)

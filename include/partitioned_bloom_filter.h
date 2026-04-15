@@ -10,9 +10,9 @@
 // of (m/k) bits each. Hash function i maps strictly into partition i.
 // This can yield different FPR characteristics compared to a standard BF.
 template <typename Key = uint64_t, typename HashPolicy = DefaultHashPolicy>
-class PartitionedBloomFilter {
+class BlockedBloomFilter {
    public:
-    PartitionedBloomFilter(size_t num_bits, size_t num_hashes)
+    BlockedBloomFilter(size_t num_bits, size_t num_hashes)
         : _bits(num_bits, false), _num_hashes(num_hashes), _partition_size(num_bits / num_hashes) {}
 
     void insert(const Key& key) {

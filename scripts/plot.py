@@ -6,7 +6,9 @@ import sys
 from io import StringIO
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+from matplotlib.colors import TwoSlopeNorm
 
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results")
 PLOTS_DIR = os.path.join(RESULTS_DIR, "plots")
@@ -14,6 +16,7 @@ PLOTS_DIR = os.path.join(RESULTS_DIR, "plots")
 # Consistent style
 FILTER_COLORS = {
     "baseline_bf": "#333333",
+    "blocked_bf": "#666666",
     "bloom_filter": "#333333",
     "partitioned_bf": "#666666",
     "bf_stash": "#e74c3c",
@@ -25,7 +28,8 @@ FILTER_COLORS = {
 }
 
 FILTER_LABELS = {
-    "baseline_bf": "Plain BF (baseline)",
+    "baseline_bf": "Plain BF",
+    "blocked_bf": "Blocked BF",
     "bloom_filter": "Plain BF",
     "partitioned_bf": "Blocked BF",
     "bf_stash": "BF stash",
@@ -43,6 +47,15 @@ def color_of(name):
 
 def label_of(name):
     return FILTER_LABELS.get(name, name)
+
+
+def plot_baseline_dots(ax, x_values, y_value, baseline_key):
+    x = np.asarray(list(x_values), dtype=float)
+    if x.size == 0:
+        return
+    y = np.full(x.shape, float(y_value), dtype=float)
+    ax.plot(x, y, linestyle="None", marker="o", markersize=4,
+            color=color_of(baseline_key), label=label_of(baseline_key))
 
 
 def query_model_label(name):
@@ -116,9 +129,13 @@ def plot_exp1():
 
     # 1c: Overall FPR vs threshold
     fig, ax = plt.subplots(figsize=(7, 4))
-    baseline = df[df["stash_type"] == "baseline_bf"]["fpr"].iloc[0]
-    ax.axhline(baseline, color=color_of("baseline_bf"), linestyle="--",
-               label=label_of("baseline_bf"))
+    x_baseline = sorted(stash_df["threshold"].unique().tolist())
+    plain_row = df[df["stash_type"] == "baseline_bf"]
+    if not plain_row.empty:
+        plot_baseline_dots(ax, x_baseline, float(plain_row["fpr"].iloc[0]), "baseline_bf")
+    blocked_row = df[df["stash_type"] == "blocked_bf"]
+    if not blocked_row.empty:
+        plot_baseline_dots(ax, x_baseline, float(blocked_row["fpr"].iloc[0]), "blocked_bf")
     for st in ["bf_stash", "lp_stash"]:
         sub = stash_df[stash_df["stash_type"] == st]
         ax.plot(sub["threshold"], sub["fpr"], "o-",
@@ -143,13 +160,18 @@ def plot_exp2():
     df = pd.read_csv(path)
     stash_df = df[df["scenario"] != "-"]
     baseline_fpr = df[df["stash_type"] == "baseline_bf"]["baseline_fpr"].iloc[0]
+    blocked_row = df[df["stash_type"] == "blocked_bf"]
+    blocked_fpr = (float(blocked_row["stashed_fpr"].iloc[0])
+                   if not blocked_row.empty else None)
 
     # 2a: FPR vs stash fraction (practical vs oracle)
     fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
     for ax, scenario in zip(axes, ["practical", "oracle"]):
         sub = stash_df[stash_df["scenario"] == scenario]
-        ax.axhline(baseline_fpr, color=color_of("baseline_bf"), linestyle="--",
-                   label="Plain BF baseline")
+        x_baseline = sorted(sub["stash_fraction"].unique().tolist())
+        plot_baseline_dots(ax, x_baseline, float(baseline_fpr), "baseline_bf")
+        if blocked_fpr is not None:
+            plot_baseline_dots(ax, x_baseline, float(blocked_fpr), "blocked_bf")
         for st in ["bf_stash", "lp_stash"]:
             s = sub[sub["stash_type"] == st]
             ax.plot(s["stash_fraction"], s["stashed_fpr"], "o-",
@@ -167,7 +189,7 @@ def plot_exp2():
              "Practical uses first-half warm-up and second-half holdout. "
              "Oracle scans the same holdout set (upper bound only).",
              ha="center", fontsize=8, color="#555555")
-    fig.tight_layout(rect=[0, 0.04, 1, 1])
+    fig.tight_layout(rect=(0.0, 0.04, 1.0, 1.0))
     savefig(fig, "exp2_negative_stash_fpr.png")
 
     # 2b: FPR reduction % (practical)
@@ -282,16 +304,21 @@ def plot_exp4():
         print("Skipping exp4 (no CSV)")
         return
     df = pd.read_csv(path)
-    baseline = df[df["stash_type"] == "baseline_bf"]
-    stash_df = df[df["stash_type"] != "baseline_bf"]
-    baseline_fpr = baseline["fpr"].iloc[0]
+    plain_baseline = df[df["stash_type"] == "baseline_bf"]
+    blocked_baseline = df[df["stash_type"] == "blocked_bf"]
+    stash_df = df[~df["stash_type"].isin(["baseline_bf", "blocked_bf"])]
+    baseline_fpr = plain_baseline["fpr"].iloc[0]
 
     # 4a: FPR vs stash fraction (all types/modes)
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.axhline(baseline_fpr, color=color_of("baseline_bf"), linestyle="--",
-               label="Plain BF baseline")
+    x_baseline = sorted(stash_df["stash_fraction"].unique().tolist())
+    plot_baseline_dots(ax, x_baseline, float(baseline_fpr), "baseline_bf")
+    if not blocked_baseline.empty:
+        plot_baseline_dots(ax, x_baseline, float(blocked_baseline["fpr"].iloc[0]),
+                           "blocked_bf")
     for (st, mode), sub in stash_df.groupby(["stash_type", "stash_mode"]):
-        key = f"stashed_{st.replace('_stash', '')}_{'pos' if mode == 'positive' else 'neg'}"
+        st_name = str(st)
+        key = f"stashed_{st_name.replace('_stash', '')}_{'pos' if mode == 'positive' else 'neg'}"
         lbl = f"{label_of(st)} ({mode})"
         c = color_of(key) if key in FILTER_COLORS else color_of(st)
         style = "-" if mode == "positive" else "--"
@@ -354,7 +381,7 @@ def plot_exp5():
     maybe_vals = df["pos_maybe"].tolist()
     false_vals = df["pos_false"].tolist()
     x = range(len(filters))
-    labels = [label_of(f) for f in filters]
+    labels = [str(label_of(f)) for f in filters]
 
     ax.bar(x, true_vals, color="#27ae60", label="True (certain)")
     ax.bar(x, maybe_vals, bottom=true_vals, color="#f39c12", label="Maybe (probable)")
@@ -399,7 +426,8 @@ def plot_exp6():
     if "query_model" not in df.columns:
         df["query_model"] = "count_weighted"
 
-    order = ["bloom_filter", "stashed_lp_pos"]
+    order = ["bloom_filter", "partitioned_bf", "stashed_lp_pos"]
+    order_6a = ["bloom_filter", "stashed_lp_pos"]
     preferred_models = ["zipf", "count_weighted"]
     models = [m for m in preferred_models if m in set(df["query_model"])]
     for m in sorted(set(df["query_model"])):
@@ -411,8 +439,8 @@ def plot_exp6():
     if len(models) == 1:
         axes = [axes]
     for ax, model in zip(axes, models):
-        sub = df[(df["query_model"] == model) & (df["filter_type"].isin(order))].copy()
-        sub["filter_type"] = pd.Categorical(sub["filter_type"], categories=order, ordered=True)
+        sub = df[(df["query_model"] == model) & (df["filter_type"].isin(order_6a))].copy()
+        sub["filter_type"] = pd.Categorical(sub["filter_type"], categories=order_6a, ordered=True)
         sub = sub.sort_values("filter_type")
 
         x = range(len(sub))
@@ -433,7 +461,7 @@ def plot_exp6():
                             ha="center", va="bottom", fontsize=8)
         ax.grid(True, axis="y", alpha=0.3)
     fig.suptitle("Exp 6a: Hot-positive downstream checks", fontsize=12)
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
     savefig(fig, "exp6a_downstream_checks.png")
 
     # 6b: Positive query outcome breakdown (per query model)
@@ -462,7 +490,7 @@ def plot_exp6():
         ax.grid(True, axis="y", alpha=0.3)
     axes[0].legend()
     fig.suptitle("Exp 6b: Positive query outcomes", fontsize=12)
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
     savefig(fig, "exp6b_positive_query_breakdown.png")
 
 
@@ -480,7 +508,7 @@ def plot_exp7():
     if "scenario" not in df.columns:
         df["scenario"] = "in_dist"
 
-    order = ["bloom_filter", "stashed_lp_neg"]
+    order = ["bloom_filter", "partitioned_bf", "stashed_lp_neg"]
     preferred_models = ["zipf", "count_weighted"]
     preferred_scenarios = ["in_dist", "cross_pool", "shifted_distribution"]
 
@@ -495,56 +523,55 @@ def plot_exp7():
             scenarios.append(s)
 
     fig, axes = plt.subplots(len(models), 2, figsize=(13, 4 * len(models)), squeeze=False)
-    width = 0.35
 
     for row_idx, model in enumerate(models):
         sub = df[(df["query_model"] == model) & (df["filter_type"].isin(order))].copy()
 
-        pivot_fpr = sub.pivot_table(index="scenario", columns="filter_type", values="fpr",
-                                    aggfunc="first")
-        pivot_fnr = sub.pivot_table(index="scenario", columns="filter_type",
-                                    values="false_negative_rate", aggfunc="first")
+        pivot_fpr = sub.pivot_table(index="scenario", columns="filter_type", values="fpr", aggfunc="first")
+        pivot_fnr = sub.pivot_table(index="scenario", columns="filter_type", values="false_negative_rate", aggfunc="first")
         pivot_red = sub.pivot_table(index="scenario", columns="filter_type",
                                     values="fpr_reduction_pct", aggfunc="first")
 
         x = list(range(len(scenarios)))
-        x_plain = [v - width / 2 for v in x]
-        x_stash = [v + width / 2 for v in x]
+        present_filters = [f for f in order if f in pivot_fpr.columns]
+        width = 0.8 / max(1, len(present_filters))
 
-        plain_fpr = [pivot_fpr.at[s, "bloom_filter"] if s in pivot_fpr.index and
-                     "bloom_filter" in pivot_fpr.columns else 0.0 for s in scenarios]
-        stash_fpr = [pivot_fpr.at[s, "stashed_lp_neg"] if s in pivot_fpr.index and
-                     "stashed_lp_neg" in pivot_fpr.columns else 0.0 for s in scenarios]
-        plain_fnr = [pivot_fnr.at[s, "bloom_filter"] if s in pivot_fnr.index and
-                     "bloom_filter" in pivot_fnr.columns else 0.0 for s in scenarios]
-        stash_fnr = [pivot_fnr.at[s, "stashed_lp_neg"] if s in pivot_fnr.index and
-                     "stashed_lp_neg" in pivot_fnr.columns else 0.0 for s in scenarios]
+        filter_to_bars_fpr = {}
+        for i, ft in enumerate(present_filters):
+            offset = (i - (len(present_filters) - 1) / 2) * width
+            xs = [v + offset for v in x]
+            vals = [pivot_fpr.at[s, ft] if s in pivot_fpr.index else 0.0 for s in scenarios]
+            bars = axes[row_idx, 0].bar(xs, vals, width=width, color=color_of(ft), label=label_of(ft))
+            filter_to_bars_fpr[ft] = bars
 
-        bars_plain = axes[row_idx, 0].bar(x_plain, plain_fpr, width=width,
-                                          color=color_of("bloom_filter"), label=label_of("bloom_filter"))
-        bars_stash = axes[row_idx, 0].bar(x_stash, stash_fpr, width=width,
-                                          color=color_of("stashed_lp_neg"),
-                                          label=label_of("stashed_lp_neg"))
+        for i, ft in enumerate(present_filters):
+            offset = (i - (len(present_filters) - 1) / 2) * width
+            xs = [v + offset for v in x]
+            vals = [pivot_fnr.at[s, ft] if (s in pivot_fnr.index and ft in pivot_fnr.columns)
+                    else 0.0 for s in scenarios]
+            axes[row_idx, 1].bar(xs, vals, width=width, color=color_of(ft), label=label_of(ft))
+
         axes[row_idx, 0].set_xticks(x)
         axes[row_idx, 0].set_xticklabels([scenario_label(s) for s in scenarios], rotation=15, ha="right")
         axes[row_idx, 0].set_ylabel("False positive rate")
         axes[row_idx, 0].set_title(f"{query_model_label(model)}: Eval FPR")
         axes[row_idx, 0].grid(True, axis="y", alpha=0.3)
 
-        if "fpr_reduction_pct" in sub.columns and "stashed_lp_neg" in pivot_red.columns:
+        if ("fpr_reduction_pct" in sub.columns and "stashed_lp_neg" in pivot_red.columns and
+                "stashed_lp_neg" in filter_to_bars_fpr):
+            stash_vals = [pivot_fpr.at[s, "stashed_lp_neg"] if s in pivot_fpr.index else 0.0
+                          for s in scenarios]
+            max_stash = (float(np.nanmax(np.asarray(stash_vals, dtype=np.float64)))
+                         if stash_vals else 0.0)
             for i, s in enumerate(scenarios):
                 if s in pivot_red.index and pd.notna(pivot_red.at[s, "stashed_lp_neg"]):
+                    bar = filter_to_bars_fpr["stashed_lp_neg"][i]
                     axes[row_idx, 0].text(
-                        bars_stash[i].get_x() + bars_stash[i].get_width() / 2,
-                        bars_stash[i].get_height() + max(stash_fpr) * 0.03 if max(stash_fpr) > 0 else 0.001,
+                        bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() + (max_stash * 0.03 if max_stash > 0 else 0.001),
                         f"{pivot_red.at[s, 'stashed_lp_neg']:.1f}%",
                         ha="center", va="bottom", fontsize=8
                     )
-
-        axes[row_idx, 1].bar(x_plain, plain_fnr, width=width, color=color_of("bloom_filter"),
-                             label=label_of("bloom_filter"))
-        axes[row_idx, 1].bar(x_stash, stash_fnr, width=width, color=color_of("stashed_lp_neg"),
-                             label=label_of("stashed_lp_neg"))
         axes[row_idx, 1].set_xticks(x)
         axes[row_idx, 1].set_xticklabels([scenario_label(s) for s in scenarios], rotation=15, ha="right")
         axes[row_idx, 1].set_ylabel("False negative rate")
@@ -553,7 +580,7 @@ def plot_exp7():
 
     axes[0, 0].legend()
     fig.suptitle("Exp 7: Repeated-negative robustness under distribution shift", fontsize=12)
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
     savefig(fig, "exp7_repeated_negative_warmup.png")
 
 
@@ -620,8 +647,7 @@ def plot_exp8():
                 linestyle=style["linestyle"],
                 marker=style["marker"],
             )
-        ax.axhline(0, color=color_of("baseline_bf"), linestyle=":",
-                   label="No net change vs baseline")
+        ax.axhline(0.0, color=color_of("baseline_bf"), linestyle=":", label="0% gain to plain BF baseline")
         ax.set_xscale("symlog", linthresh=1000)
         ax.set_xlabel("Warm-up queries")
         ax.set_ylabel("FPR reduction vs baseline (%)")
@@ -630,7 +656,7 @@ def plot_exp8():
         ax.legend(fontsize=8)
 
     fig.suptitle("Exp 8a: Benefit vs warm-up budget", fontsize=12)
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
     savefig(fig, "exp8a_warmup_budget_fpr_reduction.png")
 
     # 8b: FNR and stash occupancy vs warm-up budget (in-distribution only).
@@ -664,7 +690,7 @@ def plot_exp8():
         ax.legend(handles, labels, fontsize=8, loc="best")
 
     fig.suptitle("Exp 8b: Safety and capacity vs warm-up budget", fontsize=12)
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
     savefig(fig, "exp8b_warmup_budget_fnr_stash.png")
 
 
@@ -672,112 +698,87 @@ def plot_exp8():
 # Transfer decision boundary: where LP negative stash helps vs hurts
 # -------------------------------------------------------------------------
 def plot_decision_boundary():
-    path7 = os.path.join(RESULTS_DIR, "exp7.csv")
     path8 = os.path.join(RESULTS_DIR, "exp8.csv")
-    if not os.path.exists(path7) or not os.path.exists(path8):
-        print("Skipping decision boundary plot (need exp7.csv and exp8.csv)")
+    if not os.path.exists(path8):
+        print("Skipping decision boundary plot (need exp8.csv)")
         return
 
-    df7 = pd.read_csv(path7)
     df8 = pd.read_csv(path8)
 
-    sim_map = {
-        "cross_pool": 0.0,
-        "shifted_distribution": 0.5,
-        "in_dist": 1.0,
-    }
-    scenario_order = ["cross_pool", "shifted_distribution", "in_dist"]
-
-    points = []
-
-    # Exp7: fixed warm-up budget points.
-    st7 = df7[df7["filter_type"] == "stashed_lp_neg"].copy()
-    for _, row in st7.iterrows():
-        scenario = row.get("scenario", "in_dist")
-        points.append({
-            "source": "exp7",
-            "query_model": row.get("query_model", "count_weighted"),
-            "scenario": scenario,
-            "x": sim_map.get(scenario, 0.0),
-            "y": float(row.get("fpr_reduction_pct", 0.0)),
-            "fnr": float(row.get("false_negative_rate", 0.0)),
-        })
-
-    # Exp8: use the max warm-up point as the post-adaptation endpoint.
     st8 = df8[df8["filter_type"] == "stashed_lp_neg"].copy()
-    if not st8.empty and "warmup_queries" in st8.columns:
-        st8["warmup_queries"] = st8["warmup_queries"].astype(float)
-        idx = st8.groupby(["query_model", "scenario"])["warmup_queries"].idxmax()
-        end8 = st8.loc[idx]
-        for _, row in end8.iterrows():
-            scenario = row.get("scenario", "in_dist")
-            points.append({
-                "source": "exp8_end",
-                "query_model": row.get("query_model", "count_weighted"),
-                "scenario": scenario,
-                "x": sim_map.get(scenario, 0.0),
-                "y": float(row.get("fpr_reduction_pct", 0.0)),
-                "fnr": float(row.get("false_negative_rate", 0.0)),
-            })
-
-    if not points:
+    if st8.empty:
         print("Skipping decision boundary plot (no points)")
         return
 
-    fig, ax = plt.subplots(figsize=(8.5, 5))
-    source_markers = {"exp7": "o", "exp8_end": "^"}
-    source_labels = {
-        "exp7": "Exp7 fixed warm-up",
-        "exp8_end": "Exp8 max warm-up",
-    }
+    st8["warmup_queries"] = st8["warmup_queries"].astype(int)
+    scenario_order = ["cross_pool", "shifted_distribution", "in_dist"]
+    preferred_models = ["zipf", "count_weighted"]
 
-    # Plot by source with FNR as color.
-    for source in ["exp7", "exp8_end"]:
-        sub = [p for p in points if p["source"] == source]
-        if not sub:
-            continue
-        xs = [p["x"] for p in sub]
-        ys = [p["y"] for p in sub]
-        cs = [p["fnr"] for p in sub]
-        sc = ax.scatter(
-            xs,
-            ys,
-            c=cs,
-            cmap="viridis",
-            vmin=0.0,
-            vmax=max(1e-9, max([p["fnr"] for p in points])),
-            s=90,
-            marker=source_markers[source],
-            edgecolor="#222222",
-            linewidth=0.5,
-            label=source_labels[source],
-        )
+    models = [m for m in preferred_models if m in set(st8["query_model"])]
+    for m in sorted(set(st8["query_model"])):
+        if m not in models:
+            models.append(m)
+    scenarios = [s for s in scenario_order if s in set(st8["scenario"])]
+    for s in sorted(set(st8["scenario"])):
+        if s not in scenarios:
+            scenarios.append(s)
 
-    # Annotate each point with compact model/scenario tag.
-    model_short = {"count_weighted": "cw", "zipf": "zipf"}
-    scen_short = {
-        "in_dist": "in",
-        "shifted_distribution": "shift",
-        "cross_pool": "cross",
-    }
-    for p in points:
-        tag = f"{model_short.get(p['query_model'], str(p['query_model']))}/{scen_short.get(p['scenario'], str(p['scenario']))}"
-        ax.annotate(tag, (p["x"], p["y"]), textcoords="offset points", xytext=(5, 4), fontsize=8)
+    warmups = sorted(st8["warmup_queries"].unique().tolist())
+    if not warmups:
+        print("Skipping decision boundary plot (no warm-up values)")
+        return
 
-    ax.axhline(0.0, color=color_of("baseline_bf"), linestyle=":", label="No net gain")
-    ax.set_xticks([sim_map[s] for s in scenario_order])
-    ax.set_xticklabels([scenario_label(s) for s in scenario_order])
-    ax.set_xlabel("Transfer similarity proxy")
-    ax.set_ylabel("FPR reduction vs baseline (%)")
-    ax.set_title("LP Negative Stash Decision Boundary")
-    ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=8, loc="best")
+    vmin = float(st8["fpr_reduction_pct"].min())
+    vmax = float(st8["fpr_reduction_pct"].max())
+    norm = None
+    if vmin < 0 < vmax:
+        norm = TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
 
-    # Reuse the last scatter handle for colorbar scale.
-    cbar = fig.colorbar(sc, ax=ax)
-    cbar.set_label("False negative rate")
+    fig, axes = plt.subplots(1, len(models), figsize=(6 * len(models), 4.8), sharey=True)
+    if len(models) == 1:
+        axes = [axes]
 
-    fig.tight_layout()
+    im = None
+    for ax, model in zip(axes, models):
+        mat = np.full((len(scenarios), len(warmups)), np.nan)
+        sub = st8[st8["query_model"] == model]
+        for i, sc in enumerate(scenarios):
+            row = sub[sub["scenario"] == sc]
+            for j, w in enumerate(warmups):
+                cell = row[row["warmup_queries"] == w]
+                if not cell.empty:
+                    mat[i, j] = float(cell["fpr_reduction_pct"].iloc[0])
+
+        if norm is not None:
+            im = ax.imshow(mat, aspect="auto", cmap="RdYlGn", norm=norm)
+        else:
+            im = ax.imshow(mat, aspect="auto", cmap="RdYlGn", vmin=vmin, vmax=vmax)
+
+        for i in range(len(scenarios)):
+            for j in range(len(warmups)):
+                if np.isnan(mat[i, j]):
+                    continue
+                ax.text(j, i, f"{mat[i, j]:.0f}%", ha="center", va="center", fontsize=8,
+                        color="#111111")
+
+        ax.set_title(query_model_label(model))
+        ax.set_xticks(range(len(warmups)))
+        ax.set_xticklabels([f"{int(w/1000)}k" if w >= 1000 else str(int(w)) for w in warmups],
+                           rotation=30, ha="right")
+        ax.set_xlabel("Warm-up queries")
+        ax.set_yticks(range(len(scenarios)))
+        ax.set_yticklabels([scenario_label(s) for s in scenarios])
+
+    axes[0].set_ylabel("Evaluation scenario")
+    fig.suptitle("Decision Boundary: Transfer x Warm-up (LP negative stash)", fontsize=12)
+    if im is None:
+        print("Skipping decision boundary plot (no renderable matrix)")
+        plt.close(fig)
+        return
+
+    cbar = fig.colorbar(im, ax=axes, shrink=0.9)
+    cbar.set_label("FPR reduction vs plain BF (%)")
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
     savefig(fig, "decision_boundary_transfer.png")
 
 

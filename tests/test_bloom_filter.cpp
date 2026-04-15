@@ -121,11 +121,11 @@ TEST(bloom_single_bit) {
 }
 
 // ===========================================================================
-// Blocked Bloom filter baseline tests (implemented via PartitionedBloomFilter)
+// Blocked Bloom filter baseline tests (implemented via BlockedBloomFilter)
 // ===========================================================================
 
 TEST(partitioned_bf_no_false_negatives) {
-    PartitionedBloomFilter pbf(10000, 7);
+    BlockedBloomFilter pbf(10000, 7);
     for (uint64_t i = 0; i < 500; ++i) pbf.insert(i);
     for (uint64_t i = 0; i < 500; ++i) {
         ASSERT_TRUE(pbf.query(i));
@@ -134,7 +134,7 @@ TEST(partitioned_bf_no_false_negatives) {
 }
 
 TEST(partitioned_bf_false_positive_rate) {
-    PartitionedBloomFilter pbf(10000, 7);
+    BlockedBloomFilter pbf(10000, 7);
     for (uint64_t i = 0; i < 500; ++i) pbf.insert(i);
 
     size_t fp = 0;
@@ -149,7 +149,7 @@ TEST(partitioned_bf_false_positive_rate) {
 }
 
 TEST(partitioned_bf_empty_query) {
-    PartitionedBloomFilter pbf(1000, 5);
+    BlockedBloomFilter pbf(1000, 5);
     for (uint64_t i = 0; i < 100; ++i) {
         ASSERT_TRUE(!pbf.query(i));
     }
@@ -157,7 +157,7 @@ TEST(partitioned_bf_empty_query) {
 }
 
 TEST(partitioned_bf_count_collisions) {
-    PartitionedBloomFilter pbf(10000, 7);
+    BlockedBloomFilter pbf(10000, 7);
     ASSERT_TRUE(pbf.count_collisions(42) == 0);
     pbf.insert(42);
     ASSERT_TRUE(pbf.count_collisions(42) == 7);
@@ -165,7 +165,7 @@ TEST(partitioned_bf_count_collisions) {
 }
 
 TEST(partitioned_bf_partition_size) {
-    PartitionedBloomFilter pbf(7000, 7);
+    BlockedBloomFilter pbf(7000, 7);
     ASSERT_TRUE(pbf.partition_size() == 1000);
     ASSERT_TRUE(pbf.num_bits() == 7000);
     ASSERT_TRUE(pbf.num_hashes() == 7);
