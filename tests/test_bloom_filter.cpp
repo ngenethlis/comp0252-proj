@@ -121,11 +121,11 @@ TEST(bloom_single_bit) {
 }
 
 // ===========================================================================
-// Blocked Bloom filter baseline tests (implemented via BlockedBloomFilter)
+// Partitioned Bloom filter baseline tests (implemented via PartitionedBloomFilter)
 // ===========================================================================
 
 TEST(partitioned_bf_no_false_negatives) {
-    BlockedBloomFilter pbf(10000, 7);
+    PartitionedBloomFilter pbf(10000, 7);
     for (uint64_t i = 0; i < 500; ++i) pbf.insert(i);
     for (uint64_t i = 0; i < 500; ++i) {
         ASSERT_TRUE(pbf.query(i));
@@ -134,7 +134,7 @@ TEST(partitioned_bf_no_false_negatives) {
 }
 
 TEST(partitioned_bf_false_positive_rate) {
-    BlockedBloomFilter pbf(10000, 7);
+    PartitionedBloomFilter pbf(10000, 7);
     for (uint64_t i = 0; i < 500; ++i) pbf.insert(i);
 
     size_t fp = 0;
@@ -143,13 +143,13 @@ TEST(partitioned_bf_false_positive_rate) {
         if (pbf.query(i)) ++fp;
     }
     double fpr = static_cast<double>(fp) / test_count;
-    printf("    BlockedBF (partitioned layout) FPR: %.4f\n", fpr);
+    printf("    PartitionedBF (partitioned layout) FPR: %.4f\n", fpr);
     ASSERT_TRUE(fpr < 0.05);
     PASS("partitioned_bf_false_positive_rate");
 }
 
 TEST(partitioned_bf_empty_query) {
-    BlockedBloomFilter pbf(1000, 5);
+    PartitionedBloomFilter pbf(1000, 5);
     for (uint64_t i = 0; i < 100; ++i) {
         ASSERT_TRUE(!pbf.query(i));
     }
@@ -157,7 +157,7 @@ TEST(partitioned_bf_empty_query) {
 }
 
 TEST(partitioned_bf_count_collisions) {
-    BlockedBloomFilter pbf(10000, 7);
+    PartitionedBloomFilter pbf(10000, 7);
     ASSERT_TRUE(pbf.count_collisions(42) == 0);
     pbf.insert(42);
     ASSERT_TRUE(pbf.count_collisions(42) == 7);
@@ -165,7 +165,7 @@ TEST(partitioned_bf_count_collisions) {
 }
 
 TEST(partitioned_bf_partition_size) {
-    BlockedBloomFilter pbf(7000, 7);
+    PartitionedBloomFilter pbf(7000, 7);
     ASSERT_TRUE(pbf.partition_size() == 1000);
     ASSERT_TRUE(pbf.num_bits() == 7000);
     ASSERT_TRUE(pbf.num_hashes() == 7);

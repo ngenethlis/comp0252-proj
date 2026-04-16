@@ -8,7 +8,7 @@
 
 /**
  * @file partitioned_bloom_filter.h
- * @brief Partitioned (blocked) Bloom filter baseline.
+ * @brief Partitioned Bloom filter baseline.
  */
 
 /**
@@ -23,14 +23,14 @@
  * `static std::pair<uint64_t, uint64_t> hash_pair(const Key&)`.
  */
 template <typename Key = uint64_t, typename HashPolicy = DefaultHashPolicy>
-class BlockedBloomFilter {
+class PartitionedBloomFilter {
    public:
     /**
      * @brief Constructs a partitioned Bloom filter.
      * @param num_bits Total bits across all partitions.
      * @param num_hashes Number of partitions and probes per operation.
      */
-    BlockedBloomFilter(size_t num_bits, size_t num_hashes)
+    PartitionedBloomFilter(size_t num_bits, size_t num_hashes)
         : _bits(num_bits, false), _num_hashes(num_hashes), _partition_size(num_bits / num_hashes) {}
 
     /**

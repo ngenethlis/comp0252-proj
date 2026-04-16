@@ -1,8 +1,12 @@
-# Stashed Bloom Filter
+# UCL COMP0252 Project
+
+Do stashed bloomfilters outperform normal bloomfilters?
+
+## Stashed Bloom Filter
 
 Header-only C++20 implementations of:
 1. A standard Bloom filter.
-2. A partitioned/blocked Bloom filter baseline.
+2. A partitioned Bloom filter baseline.
 3. A stash-augmented Bloom filter with tri-valued query semantics.
 
 The project includes experiments (`exp1`-`exp8`), benchmarks, and an interactive
@@ -12,7 +16,7 @@ breached-password demo.
 
 - Header-only API in `include/` (no library `.cpp` files).
 - `BloomFilter<Key, HashPolicy>` with double hashing.
-- `BlockedBloomFilter<Key, HashPolicy>` partitioned baseline.
+- `PartitionedBloomFilter<Key, HashPolicy>` partitioned baseline.
 - `StashedBloomFilter<Key, HashPolicy, Stash>` with:
   - `StashMode::Positive` (stash as positive evidence),
   - `StashMode::Negative` (stash as negative override).

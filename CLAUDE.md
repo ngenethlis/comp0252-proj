@@ -1,4 +1,4 @@
-# Stashed Bloom Filter
+#Stashed Bloom Filter
 
 A header-only C++20 library implementing a standard Bloom filter and a stash-augmented variant that aims to reduce false positive rates by diverting high-collision inserts to a secondary structure.
 
@@ -13,7 +13,7 @@ cmake -B build && cmake --build build
 ./build/main demo              # interactive breached-password querier
 ./build/main demo path/to/pw   # use custom password file
 
-# Run all experiments and generate plots:
+#Run all experiments and generate plots:
 ./scripts/run_experiments.sh                    # saves CSVs to results/
 .venv/bin/python3 scripts/plot.py               # saves PNGs to results/plots/
 ```
@@ -23,7 +23,7 @@ cmake -B build && cmake --build build
 ```
 include/                   Header-only library (all templates, no .cpp files)
   bloom_filter.h             BloomFilter<Key, HashPolicy> + DefaultHashPolicy
-  partitioned_bloom_filter.h BlockedBloomFilter<Key, HashPolicy> (blocked BF baseline)
+  partitioned_bloom_filter.h PartitionedBloomFilter<Key, HashPolicy> (partitioned BF baseline)
   prob_bool.h                ProbBool enum {True, Maybe, False}
   stash_set.h                StashSet CRTP interface
   bloom_filter_stash.h       BloomFilterStash (secondary BF as stash)
@@ -59,7 +59,8 @@ Two implementations:
 - **LinearProbingStash** — fixed-capacity hash table storing 64-bit fingerprints (no false positives, but can fill up)
 
 ### StashedBloomFilter<Key, HashPolicy, Stash>
-Wraps a primary BloomFilter + a StashSet. On insert, counts how many of the k bit positions are already set; if `count >= collision_threshold`, the key is diverted to the stash. If the stash is full, falls back to the primary filter.
+Wraps a primary BloomFilter + a StashSet. On insert, counts how many of the k bit positions are already set;
+if `count >= collision_threshold`, the key is diverted to the stash. If the stash is full, falls back to the primary filter.
 
 Supports two stash modes (`StashMode`):
 - **Positive** — stash stores "definitely in set" keys. Query returns `True` for stash hits, `Maybe` for primary hits, `False` otherwise.

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/ usr / bin / env python3
 """Plot experiment results from CSV files in results/."""
 
 import os
@@ -13,10 +13,10 @@ from matplotlib.colors import TwoSlopeNorm
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results")
 PLOTS_DIR = os.path.join(RESULTS_DIR, "plots")
 
-# Consistent style
+#Consistent style
 FILTER_COLORS = {
     "baseline_bf": "#333333",
-    "blocked_bf": "#666666",
+    "partitioned_bf": "#666666",
     "bloom_filter": "#333333",
     "partitioned_bf": "#666666",
     "bf_stash": "#e74c3c",
@@ -29,9 +29,9 @@ FILTER_COLORS = {
 
 FILTER_LABELS = {
     "baseline_bf": "Plain BF",
-    "blocked_bf": "Blocked BF",
+    "partitioned_bf": "Partitioned BF",
     "bloom_filter": "Plain BF",
-    "partitioned_bf": "Blocked BF",
+    "partitioned_bf": "Partitioned BF",
     "bf_stash": "BF stash",
     "lp_stash": "LP stash",
     "stashed_bf_pos": "Stashed BF (BF, +ve)",
@@ -82,10 +82,9 @@ def savefig(fig, name):
     print(f"  saved {path}")
     plt.close(fig)
 
-
-# -------------------------------------------------------------------------
-# Exp 1: Certainty vs collision threshold
-# -------------------------------------------------------------------------
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
+#Exp 1 : Certainty vs collision threshold
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
 def plot_exp1():
     path = os.path.join(RESULTS_DIR, "exp1.csv")
     if not os.path.exists(path):
@@ -95,7 +94,7 @@ def plot_exp1():
     stash_df = df[df["threshold"] != "-"].copy()
     stash_df["threshold"] = stash_df["threshold"].astype(int)
 
-    # 1a: Certainty rate for positives
+# 1a : Certainty rate for positives
     fig, ax = plt.subplots(figsize=(7, 4))
     for st in ["bf_stash", "lp_stash"]:
         sub = stash_df[stash_df["stash_type"] == st]
@@ -113,7 +112,7 @@ def plot_exp1():
             transform=ax.transAxes, fontsize=8, color="#555555")
     savefig(fig, "exp1a_certainty_rate.png")
 
-    # 1b: False certainty rate for negatives
+# 1b : False certainty rate for negatives
     fig, ax = plt.subplots(figsize=(7, 4))
     for st in ["bf_stash", "lp_stash"]:
         sub = stash_df[stash_df["stash_type"] == st]
@@ -127,15 +126,15 @@ def plot_exp1():
     ax.grid(True, alpha=0.3)
     savefig(fig, "exp1b_false_certainty.png")
 
-    # 1c: Overall FPR vs threshold
+# 1c : Overall FPR vs threshold
     fig, ax = plt.subplots(figsize=(7, 4))
     x_baseline = sorted(stash_df["threshold"].unique().tolist())
     plain_row = df[df["stash_type"] == "baseline_bf"]
     if not plain_row.empty:
         plot_baseline_dots(ax, x_baseline, float(plain_row["fpr"].iloc[0]), "baseline_bf")
-    blocked_row = df[df["stash_type"] == "blocked_bf"]
-    if not blocked_row.empty:
-        plot_baseline_dots(ax, x_baseline, float(blocked_row["fpr"].iloc[0]), "blocked_bf")
+    partitioned_row = df[df["stash_type"] == "partitioned_bf"]
+    if not partitioned_row.empty:
+        plot_baseline_dots(ax, x_baseline, float(partitioned_row["fpr"].iloc[0]), "partitioned_bf")
     for st in ["bf_stash", "lp_stash"]:
         sub = stash_df[stash_df["stash_type"] == st]
         ax.plot(sub["threshold"], sub["fpr"], "o-",
@@ -148,10 +147,9 @@ def plot_exp1():
     ax.grid(True, alpha=0.3)
     savefig(fig, "exp1c_fpr_vs_threshold.png")
 
-
-# -------------------------------------------------------------------------
-# Exp 2: Negative stash FPR reduction
-# -------------------------------------------------------------------------
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
+#Exp 2 : Negative stash FPR reduction
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
 def plot_exp2():
     path = os.path.join(RESULTS_DIR, "exp2.csv")
     if not os.path.exists(path):
@@ -160,18 +158,18 @@ def plot_exp2():
     df = pd.read_csv(path)
     stash_df = df[df["scenario"] != "-"]
     baseline_fpr = df[df["stash_type"] == "baseline_bf"]["baseline_fpr"].iloc[0]
-    blocked_row = df[df["stash_type"] == "blocked_bf"]
-    blocked_fpr = (float(blocked_row["stashed_fpr"].iloc[0])
-                   if not blocked_row.empty else None)
+    partitioned_row = df[df["stash_type"] == "partitioned_bf"]
+    partitioned_fpr = (float(partitioned_row["stashed_fpr"].iloc[0])
+                       if not partitioned_row.empty else None)
 
-    # 2a: FPR vs stash fraction (practical vs oracle)
+# 2a : FPR vs stash fraction(practical vs oracle)
     fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
     for ax, scenario in zip(axes, ["practical", "oracle"]):
         sub = stash_df[stash_df["scenario"] == scenario]
         x_baseline = sorted(sub["stash_fraction"].unique().tolist())
         plot_baseline_dots(ax, x_baseline, float(baseline_fpr), "baseline_bf")
-        if blocked_fpr is not None:
-            plot_baseline_dots(ax, x_baseline, float(blocked_fpr), "blocked_bf")
+        if partitioned_fpr is not None:
+            plot_baseline_dots(ax, x_baseline, float(partitioned_fpr), "partitioned_bf")
         for st in ["bf_stash", "lp_stash"]:
             s = sub[sub["stash_type"] == st]
             ax.plot(s["stash_fraction"], s["stashed_fpr"], "o-",
@@ -192,7 +190,7 @@ def plot_exp2():
     fig.tight_layout(rect=(0.0, 0.04, 1.0, 1.0))
     savefig(fig, "exp2_negative_stash_fpr.png")
 
-    # 2b: FPR reduction % (practical)
+# 2b : FPR reduction %(practical)
     fig, ax = plt.subplots(figsize=(7, 4))
     prac = stash_df[stash_df["scenario"] == "practical"]
     for st in ["bf_stash", "lp_stash"]:
@@ -207,7 +205,7 @@ def plot_exp2():
     ax.grid(True, alpha=0.3)
     savefig(fig, "exp2b_fpr_reduction_practical.png")
 
-    # 2c: False-negative rate vs stash fraction (negative mode side effect)
+# 2c : False - negative rate vs stash fraction(negative mode side effect)
     if "false_negative_rate" in stash_df.columns:
         fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
         for ax, scenario in zip(axes, ["practical", "oracle"]):
@@ -225,10 +223,9 @@ def plot_exp2():
         fig.tight_layout()
         savefig(fig, "exp2c_false_negative_rate.png")
 
-
-# -------------------------------------------------------------------------
-# Exp 3: FPR vs load factor
-# -------------------------------------------------------------------------
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
+#Exp 3 : FPR vs load factor
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
 def plot_exp3():
     path = os.path.join(RESULTS_DIR, "exp3.csv")
     if not os.path.exists(path):
@@ -236,12 +233,12 @@ def plot_exp3():
         return
     df = pd.read_csv(path)
 
-    # 3a: FPR vs n
+# 3a : FPR vs n
     fig, ax = plt.subplots(figsize=(8, 5))
     for ft in ["bloom_filter", "partitioned_bf", "stashed_bf_pos", "stashed_lp_pos",
                "stashed_bf_neg", "stashed_lp_neg"]:
         sub = df[df["filter_type"] == ft]
-        # Skip zeros for log scale
+#Skip zeros for log scale
         sub_nonzero = sub[sub["fpr"] > 0]
         if not sub_nonzero.empty:
             ax.plot(sub_nonzero["n"], sub_nonzero["fpr"], "o-",
@@ -254,7 +251,7 @@ def plot_exp3():
     ax.grid(True, alpha=0.3, which="both")
     savefig(fig, "exp3a_fpr_vs_n.png")
 
-    # 3b: Certainty rate vs n (positive stash types only)
+# 3b : Certainty rate vs n(positive stash types only)
     fig, ax = plt.subplots(figsize=(7, 4))
     for ft in ["stashed_bf_pos", "stashed_lp_pos"]:
         sub = df[df["filter_type"] == ft]
@@ -267,7 +264,7 @@ def plot_exp3():
     ax.grid(True, alpha=0.3)
     savefig(fig, "exp3b_certainty_vs_n.png")
 
-    # 3c: False certainty vs n
+# 3c : False certainty vs n
     fig, ax = plt.subplots(figsize=(7, 4))
     for ft in ["stashed_bf_pos", "stashed_lp_pos"]:
         sub = df[df["filter_type"] == ft]
@@ -280,7 +277,7 @@ def plot_exp3():
     ax.grid(True, alpha=0.3)
     savefig(fig, "exp3c_false_certainty_vs_n.png")
 
-    # 3d: False-negative rate vs n (negative stash modes)
+# 3d : False - negative rate vs n(negative stash modes)
     if "false_negative_rate" in df.columns:
         fig, ax = plt.subplots(figsize=(7, 4))
         for ft in ["stashed_bf_neg", "stashed_lp_neg"]:
@@ -294,10 +291,9 @@ def plot_exp3():
         ax.grid(True, alpha=0.3)
         savefig(fig, "exp3d_false_negative_vs_n.png")
 
-
-# -------------------------------------------------------------------------
-# Exp 4: Stash fraction sweep
-# -------------------------------------------------------------------------
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
+#Exp 4 : Stash fraction sweep
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
 def plot_exp4():
     path = os.path.join(RESULTS_DIR, "exp4.csv")
     if not os.path.exists(path):
@@ -305,17 +301,17 @@ def plot_exp4():
         return
     df = pd.read_csv(path)
     plain_baseline = df[df["stash_type"] == "baseline_bf"]
-    blocked_baseline = df[df["stash_type"] == "blocked_bf"]
-    stash_df = df[~df["stash_type"].isin(["baseline_bf", "blocked_bf"])]
+    partitioned_baseline = df[df["stash_type"] == "partitioned_bf"]
+    stash_df = df[~df["stash_type"].isin(["baseline_bf", "partitioned_bf"])]
     baseline_fpr = plain_baseline["fpr"].iloc[0]
 
-    # 4a: FPR vs stash fraction (all types/modes)
+# 4a : FPR vs stash fraction(all types / modes)
     fig, ax = plt.subplots(figsize=(8, 5))
     x_baseline = sorted(stash_df["stash_fraction"].unique().tolist())
     plot_baseline_dots(ax, x_baseline, float(baseline_fpr), "baseline_bf")
-    if not blocked_baseline.empty:
-        plot_baseline_dots(ax, x_baseline, float(blocked_baseline["fpr"].iloc[0]),
-                           "blocked_bf")
+    if not partitioned_baseline.empty:
+        plot_baseline_dots(ax, x_baseline, float(partitioned_baseline["fpr"].iloc[0]),
+                           "partitioned_bf")
     for (st, mode), sub in stash_df.groupby(["stash_type", "stash_mode"]):
         st_name = str(st)
         key = f"stashed_{st_name.replace('_stash', '')}_{'pos' if mode == 'positive' else 'neg'}"
@@ -334,7 +330,7 @@ def plot_exp4():
             transform=ax.transAxes, fontsize=8, color="#555555")
     savefig(fig, "exp4a_fpr_vs_fraction.png")
 
-    # 4b: Certainty rate vs stash fraction (positive mode only)
+# 4b : Certainty rate vs stash fraction(positive mode only)
     fig, ax = plt.subplots(figsize=(7, 4))
     pos = stash_df[stash_df["stash_mode"] == "positive"]
     for st in ["bf_stash", "lp_stash"]:
@@ -348,7 +344,7 @@ def plot_exp4():
     ax.grid(True, alpha=0.3)
     savefig(fig, "exp4b_certainty_vs_fraction.png")
 
-    # 4c: False-negative rate vs stash fraction (negative mode)
+# 4c : False - negative rate vs stash fraction(negative mode)
     if "false_negative_rate" in stash_df.columns:
         fig, ax = plt.subplots(figsize=(7, 4))
         neg_mode = stash_df[stash_df["stash_mode"] == "negative"]
@@ -363,10 +359,9 @@ def plot_exp4():
         ax.grid(True, alpha=0.3)
         savefig(fig, "exp4c_false_negative_vs_fraction.png")
 
-
-# -------------------------------------------------------------------------
-# Exp 5: Password workload
-# -------------------------------------------------------------------------
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
+#Exp 5 : Password workload
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
 def plot_exp5():
     path = os.path.join(RESULTS_DIR, "exp5.csv")
     if not os.path.exists(path):
@@ -374,7 +369,7 @@ def plot_exp5():
         return
     df = pd.read_csv(path)
 
-    # 5a: ProbBool breakdown for positive queries (stacked bar)
+# 5a : ProbBool breakdown for positive queries(stacked bar)
     fig, ax = plt.subplots(figsize=(9, 5))
     filters = df["filter_type"].tolist()
     true_vals = df["pos_true"].tolist()
@@ -396,7 +391,7 @@ def plot_exp5():
     fig.tight_layout()
     savefig(fig, "exp5a_password_pos_breakdown.png")
 
-    # 5b: FPR + false certainty for negative queries
+# 5b : FPR + false certainty for negative queries
     fig, ax = plt.subplots(figsize=(9, 5))
     ax.bar(x, df["fpr"].tolist(), color="#3498db", label="FPR")
     ax2 = ax.twinx()
@@ -413,10 +408,9 @@ def plot_exp5():
     fig.tight_layout()
     savefig(fig, "exp5b_password_neg_errors.png")
 
-
-# -------------------------------------------------------------------------
-# Exp 6: Hot-positive certainty workload
-# -------------------------------------------------------------------------
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
+#Exp 6 : Hot - positive certainty workload
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
 def plot_exp6():
     path = os.path.join(RESULTS_DIR, "exp6.csv")
     if not os.path.exists(path):
@@ -434,7 +428,7 @@ def plot_exp6():
         if m not in models:
             models.append(m)
 
-    # 6a: Downstream check rate (per query model)
+# 6a : Downstream check rate(per query model)
     fig, axes = plt.subplots(1, len(models), figsize=(7 * len(models), 4), sharey=True)
     if len(models) == 1:
         axes = [axes]
@@ -464,7 +458,7 @@ def plot_exp6():
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
     savefig(fig, "exp6a_downstream_checks.png")
 
-    # 6b: Positive query outcome breakdown (per query model)
+# 6b : Positive query outcome breakdown(per query model)
     fig, axes = plt.subplots(1, len(models), figsize=(7 * len(models), 4), sharey=True)
     if len(models) == 1:
         axes = [axes]
@@ -493,10 +487,9 @@ def plot_exp6():
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
     savefig(fig, "exp6b_positive_query_breakdown.png")
 
-
-# -------------------------------------------------------------------------
-# Exp 7: Repeated negatives with warm-up
-# -------------------------------------------------------------------------
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
+#Exp 7 : Repeated negatives with warm - up
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
 def plot_exp7():
     path = os.path.join(RESULTS_DIR, "exp7.csv")
     if not os.path.exists(path):
@@ -583,10 +576,9 @@ def plot_exp7():
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
     savefig(fig, "exp7_repeated_negative_warmup.png")
 
-
-# -------------------------------------------------------------------------
-# Exp 8: Warm-up budget sweep
-# -------------------------------------------------------------------------
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
+#Exp 8 : Warm - up budget sweep
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
 def plot_exp8():
     path = os.path.join(RESULTS_DIR, "exp8.csv")
     if not os.path.exists(path):
@@ -615,7 +607,7 @@ def plot_exp8():
         if s not in scenarios:
             scenarios.append(s)
 
-    # 8a: FPR reduction vs warm-up budget.
+# 8a : FPR reduction vs warm - up budget.
     fig, axes = plt.subplots(1, len(models), figsize=(7 * len(models), 4), sharey=True)
     if len(models) == 1:
         axes = [axes]
@@ -659,7 +651,7 @@ def plot_exp8():
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
     savefig(fig, "exp8a_warmup_budget_fpr_reduction.png")
 
-    # 8b: FNR and stash occupancy vs warm-up budget (in-distribution only).
+# 8b : FNR and stash occupancy vs warm - up budget(in - distribution only).
     fig, axes = plt.subplots(1, len(models), figsize=(7 * len(models), 4), sharey=False)
     if len(models) == 1:
         axes = [axes]
@@ -693,10 +685,9 @@ def plot_exp8():
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
     savefig(fig, "exp8b_warmup_budget_fnr_stash.png")
 
-
-# -------------------------------------------------------------------------
-# Transfer decision boundary: where LP negative stash helps vs hurts
-# -------------------------------------------------------------------------
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
+#Transfer decision boundary : where LP negative stash helps vs hurts
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
 def plot_decision_boundary():
     path8 = os.path.join(RESULTS_DIR, "exp8.csv")
     if not os.path.exists(path8):
@@ -781,17 +772,16 @@ def plot_decision_boundary():
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
     savefig(fig, "decision_boundary_transfer.png")
 
-
-# -------------------------------------------------------------------------
-# Benchmarks
-# -------------------------------------------------------------------------
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
+#Benchmarks
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
 def plot_bench():
     path = os.path.join(RESULTS_DIR, "bench.csv")
     if not os.path.exists(path):
         print("Skipping bench (no CSV)")
         return
 
-    # bench.csv has multiple headers (one per benchmark type). Read in chunks.
+#bench.csv has multiple headers(one per benchmark type).Read in chunks.
     chunks = []
     current_lines = []
     with open(path) as f:
@@ -825,10 +815,9 @@ def plot_bench():
         ax.grid(True, alpha=0.3)
         savefig(fig, f"bench_{bench_type}.png")
 
-
-# -------------------------------------------------------------------------
-# Main
-# -------------------------------------------------------------------------
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
+#Main
+#-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -
 def main():
     plt.style.use("seaborn-v0_8-whitegrid")
 
