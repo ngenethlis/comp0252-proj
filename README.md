@@ -153,4 +153,4 @@ sphinx-build -b html -W docs docs/_build/html
 
 ## License
 
-No license file is currently included in this repository.
+This project is licensed under the MIT License. See `LICENSE`.
