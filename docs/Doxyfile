@@ -1,0 +1,21 @@
+PROJECT_NAME           = "Stashed Bloom Filter"
+OUTPUT_DIRECTORY       = _build/doxygen
+INPUT                  = ../include
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h
+
+GENERATE_HTML          = NO
+GENERATE_LATEX         = NO
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
+
+JAVADOC_AUTOBRIEF      = YES
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+HIDE_UNDOC_MEMBERS     = NO
+HIDE_UNDOC_CLASSES     = NO
+WARN_IF_UNDOCUMENTED   = NO
+WARN_AS_ERROR          = YES
+QUIET                  = YES
+FULL_PATH_NAMES        = NO

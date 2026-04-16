@@ -22,3 +22,15 @@ add_test(NAME bloom_filter_tests COMMAND tests)
 # Benchmarks
 add_executable(bench bench/bench_bloom_filter.cpp)
 target_link_libraries(bench PRIVATE bloom_filter)
+
+# Documentation (optional): requires sphinx-build and doxygen installed.
+find_program(SPHINX_BUILD_EXECUTABLE sphinx-build)
+find_package(Doxygen QUIET)
+if(SPHINX_BUILD_EXECUTABLE AND DOXYGEN_FOUND)
+  add_custom_target(
+    docs
+    COMMAND ${SPHINX_BUILD_EXECUTABLE} -b html -W docs docs/_build/html
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building API documentation with Sphinx and Doxygen"
+  )
+endif()

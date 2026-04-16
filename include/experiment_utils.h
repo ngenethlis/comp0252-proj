@@ -1,6 +1,8 @@
 #pragma once
 
 #include <algorithm>
+#include <cctype>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -8,12 +10,22 @@
 #include <numeric>
 #include <random>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "stashed_bloom_filter.h"
 
-// Generate n unique uniform random uint64_t values using the given seed.
-// Keys are drawn from [offset, offset + range) to allow non-overlapping sets.
+/**
+ * @file experiment_utils.h
+ * @brief Utilities for synthetic/data-driven experiment generation and metrics.
+ */
+
+/**
+ * @brief Generates `n` pseudo-random keys using a uniform RNG.
+ * @param n Number of keys.
+ * @param seed RNG seed.
+ * @param offset Constant added to each generated key.
+ */
 inline std::vector<uint64_t> generate_uniform_keys(size_t n, uint64_t seed, uint64_t offset = 0) {
     std::mt19937_64 rng(seed);
     std::vector<uint64_t> keys;
@@ -24,8 +36,13 @@ inline std::vector<uint64_t> generate_uniform_keys(size_t n, uint64_t seed, uint
     return keys;
 }
 
-// Generate n keys from a Zipf distribution with exponent s over ranks [1, max_rank].
-// Uses inverse CDF table lookup.
+/**
+ * @brief Generates keys sampled from a Zipf distribution.
+ * @param n Number of generated keys.
+ * @param s Zipf exponent.
+ * @param max_rank Maximum rank in `[1, max_rank]`.
+ * @param seed RNG seed.
+ */
 inline std::vector<uint64_t> generate_zipf_keys(size_t n, double s, uint64_t max_rank,
                                                 uint64_t seed) {
     // Build CDF
@@ -61,16 +78,18 @@ inline std::vector<uint64_t> generate_zipf_keys(size_t n, double s, uint64_t max
     return keys;
 }
 
-// Three disjoint key sets for experiments.
+/**
+ * @brief Non-overlapping key sets used by experiment pipelines.
+ */
 struct DataSplit {
-    std::vector<uint64_t> positives;        // keys to insert into the filter
-    std::vector<uint64_t> stash_negatives;  // known negatives for populating negative stash
-    std::vector<uint64_t>
-        test_negatives;  // known negatives for measuring FPR (disjoint from above)
+    std::vector<uint64_t> positives;       /**< Keys inserted into filters. */
+    std::vector<uint64_t> stash_negatives; /**< Known negatives for negative-stash population. */
+    std::vector<uint64_t> test_negatives;  /**< Known negatives used for FPR measurement. */
 };
 
-// Generate three non-overlapping key sets using different seed offsets.
-// Uses high bits to separate ranges, so overlap is astronomically unlikely.
+/**
+ * @brief Creates a `DataSplit` with three practically disjoint key populations.
+ */
 inline DataSplit generate_data(size_t n_pos, size_t n_stash_neg, size_t n_test_neg, uint64_t seed) {
     DataSplit data;
     data.positives = generate_uniform_keys(n_pos, seed, 0);
@@ -79,7 +98,14 @@ inline DataSplit generate_data(size_t n_pos, size_t n_stash_neg, size_t n_test_n
     return data;
 }
 
-// Measure false positive rate for a filter with a .query(key) -> bool interface.
+/**
+ * @brief Measures false-positive rate for a filter exposing `query(key) -> bool`.
+ * @tparam Filter Filter type with `bool query(const Key&) const`.
+ * @tparam Key Key element type.
+ * @param filter Filter under test.
+ * @param negatives Known-negative query set.
+ * @return False-positive fraction in `[0, 1]`.
+ */
 template <typename Filter, typename Key>
 double measure_fpr(const Filter& filter, const std::vector<Key>& negatives) {
     if (negatives.empty()) {
@@ -94,7 +120,10 @@ double measure_fpr(const Filter& filter, const std::vector<Key>& negatives) {
     return static_cast<double>(fp) / static_cast<double>(negatives.size());
 }
 
-// Measure FPR for StashedBloomFilter using query_bool().
+/**
+ * @brief Measures FPR for stashed filters using positive-like query semantics.
+ * @return Fraction of known negatives where `query_bool` returns true.
+ */
 template <typename Key, typename HP, typename Stash>
 double measure_fpr_stashed(const StashedBloomFilter<Key, HP, Stash>& filter,
                            const std::vector<Key>& negatives) {
@@ -110,30 +139,32 @@ double measure_fpr_stashed(const StashedBloomFilter<Key, HP, Stash>& filter,
     return static_cast<double>(fp) / static_cast<double>(negatives.size());
 }
 
-// ---------------------------------------------------------------------------
-// ProbBool query statistics
-// ---------------------------------------------------------------------------
-
+/**
+ * @brief Counts of tri-valued query outcomes.
+ */
 struct QueryStats {
     size_t true_count = 0;
     size_t maybe_count = 0;
     size_t false_count = 0;
 
+    /** @brief Total number of recorded queries. */
     [[nodiscard]] size_t total() const { return true_count + maybe_count + false_count; }
 
-    // Fraction of queries returning True (certain membership).
+    /** @brief Fraction of results equal to `ProbBool::True`. */
     [[nodiscard]] double true_rate() const {
         return total() > 0 ? static_cast<double>(true_count) / static_cast<double>(total()) : 0.0;
     }
 
-    // Fraction of queries returning True or Maybe (any positive signal).
+    /** @brief Fraction of results considered positive (`True` or `Maybe`). */
     [[nodiscard]] double positive_rate() const {
         size_t pos = true_count + maybe_count;
         return total() > 0 ? static_cast<double>(pos) / static_cast<double>(total()) : 0.0;
     }
 };
 
-// Count ProbBool outcomes from querying a stashed bloom filter.
+/**
+ * @brief Tallies `ProbBool` outcomes across a key set.
+ */
 template <typename Key, typename HP, typename Stash>
 QueryStats count_query_results(const StashedBloomFilter<Key, HP, Stash>& filter,
                                const std::vector<Key>& keys) {
@@ -154,16 +185,19 @@ QueryStats count_query_results(const StashedBloomFilter<Key, HP, Stash>& filter,
     return stats;
 }
 
-// ---------------------------------------------------------------------------
-// File I/O helpers
-// ---------------------------------------------------------------------------
-
-// Read non-empty lines from a text file (one entry per line).
+/**
+ * @brief Reads non-empty lines from a UTF-8 text file.
+ * @param path File path.
+ * @return Non-empty trimmed lines (trailing CR/LF removed).
+ */
 inline std::vector<std::string> read_lines(const std::string& path) {
     std::vector<std::string> lines;
     std::ifstream file(path);
     std::string line;
     while (std::getline(file, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) {
+            line.pop_back();
+        }
         if (!line.empty()) {
             lines.push_back(line);
         }
@@ -171,8 +205,90 @@ inline std::vector<std::string> read_lines(const std::string& path) {
     return lines;
 }
 
-// Generate n random alphanumeric strings of the given length.
-// Useful as synthetic negatives for FPR testing with string keys.
+/**
+ * @brief String key with optional frequency/count weight.
+ */
+struct WeightedStringEntry {
+    std::string key;    /**< Entry key. */
+    uint64_t count = 1; /**< Parsed count (defaults to 1). */
+};
+
+/**
+ * @brief Reads weighted string entries from text lines.
+ *
+ * Accepted formats per line are `key` or `key:count`. Invalid or missing count
+ * values default to `1`.
+ */
+inline std::vector<WeightedStringEntry> read_weighted_lines(const std::string& path) {
+    std::vector<WeightedStringEntry> entries;
+    std::ifstream file(path);
+    std::string line;
+    while (std::getline(file, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) {
+            line.pop_back();
+        }
+        if (line.empty()) {
+            continue;
+        }
+
+        WeightedStringEntry entry{line, 1};
+        const size_t sep = line.rfind(':');
+        if (sep != std::string::npos && sep > 0 && sep + 1 < line.size()) {
+            uint64_t parsed_count = 1;
+            const char* begin = line.data() + sep + 1;
+            const char* end = line.data() + line.size();
+            while (begin < end && std::isspace(static_cast<unsigned char>(*begin))) {
+                ++begin;
+            }
+            while (end > begin && std::isspace(static_cast<unsigned char>(*(end - 1)))) {
+                --end;
+            }
+            const auto result = std::from_chars(begin, end, parsed_count);
+            if (begin < end && result.ec == std::errc() && result.ptr == end) {
+                entry.key = line.substr(0, sep);
+                entry.count = parsed_count > 0 ? parsed_count : 1;
+            }
+        }
+        entries.push_back(std::move(entry));
+    }
+    return entries;
+}
+
+/**
+ * @brief Samples indices according to non-negative integer weights.
+ * @param n Number of draws.
+ * @param weights Weight vector (one weight per index).
+ * @param seed RNG seed.
+ * @return Vector of sampled indices in `[0, weights.size())`.
+ */
+inline std::vector<size_t> sample_weighted_indices(size_t n, const std::vector<uint64_t>& weights,
+                                                   uint64_t seed) {
+    std::vector<size_t> indices;
+    if (weights.empty() || n == 0) {
+        return indices;
+    }
+    indices.reserve(n);
+
+    std::vector<double> probs;
+    probs.reserve(weights.size());
+    for (uint64_t w : weights) {
+        probs.push_back(static_cast<double>(w));
+    }
+
+    std::mt19937_64 rng(seed);
+    std::discrete_distribution<size_t> dist(probs.begin(), probs.end());
+    for (size_t i = 0; i < n; ++i) {
+        indices.push_back(dist(rng));
+    }
+    return indices;
+}
+
+/**
+ * @brief Generates random strings for synthetic negative-query datasets.
+ * @param n Number of strings.
+ * @param len Length per string.
+ * @param seed RNG seed.
+ */
 inline std::vector<std::string> generate_random_strings(size_t n, size_t len, uint64_t seed) {
     static constexpr char kChars[] =
         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";

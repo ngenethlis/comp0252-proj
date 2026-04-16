@@ -43,3 +43,23 @@ jobs:
         run: |
           find include -name '*.h' \
             | xargs clang-tidy -p build
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Doxygen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen
+
+      - name: Install Python doc dependencies
+        run: python3 -m pip install -r docs/requirements.txt
+
+      - name: Build docs
+        run: sphinx-build -b html -W docs docs/_build/html

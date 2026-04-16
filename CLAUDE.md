@@ -6,9 +6,9 @@ A header-only C++20 library implementing a standard Bloom filter and a stash-aug
 
 ```bash
 cmake -B build && cmake --build build
-./build/tests                  # run tests (33 tests)
+./build/tests                  # run tests (35 tests)
 ./build/bench                  # run benchmarks (insert/query throughput)
-./build/main                   # run all experiments (exp1-exp5)
+./build/main                   # run all experiments (exp1-exp8)
 ./build/main exp1              # run single experiment
 ./build/main demo              # interactive breached-password querier
 ./build/main demo path/to/pw   # use custom password file
@@ -23,7 +23,7 @@ cmake -B build && cmake --build build
 ```
 include/                   Header-only library (all templates, no .cpp files)
   bloom_filter.h             BloomFilter<Key, HashPolicy> + DefaultHashPolicy
-  partitioned_bloom_filter.h PartitionedBloomFilter<Key, HashPolicy>
+  partitioned_bloom_filter.h BlockedBloomFilter<Key, HashPolicy> (blocked BF baseline)
   prob_bool.h                ProbBool enum {True, Maybe, False}
   stash_set.h                StashSet CRTP interface
   bloom_filter_stash.h       BloomFilterStash (secondary BF as stash)
@@ -31,9 +31,9 @@ include/                   Header-only library (all templates, no .cpp files)
   stashed_bloom_filter.h     StashedBloomFilter<Key, HashPolicy, Stash>
   experiment_utils.h         Key generation, FPR measurement, file I/O
 src/
-  main.cpp                   Experiment runner (exp1-exp5 + demo mode)
+  main.cpp                   Experiment runner (exp1-exp8 + demo mode)
 tests/
-  test_bloom_filter.cpp      All unit tests (33 tests)
+  test_bloom_filter.cpp      All unit tests (35 tests)
 bench/
   bench_bloom_filter.cpp     Insert/query throughput benchmarks
 scripts/

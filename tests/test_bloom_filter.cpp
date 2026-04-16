@@ -1,10 +1,12 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
+#include <fstream>
 #include <string>
 
 #include "bloom_filter.h"
 #include "bloom_filter_stash.h"
+#include "experiment_utils.h"
 #include "linear_probing_stash.h"
 #include "partitioned_bloom_filter.h"
 #include "prob_bool.h"
@@ -119,11 +121,11 @@ TEST(bloom_single_bit) {
 }
 
 // ===========================================================================
-// PartitionedBloomFilter tests
+// Blocked Bloom filter baseline tests (implemented via BlockedBloomFilter)
 // ===========================================================================
 
 TEST(partitioned_bf_no_false_negatives) {
-    PartitionedBloomFilter pbf(10000, 7);
+    BlockedBloomFilter pbf(10000, 7);
     for (uint64_t i = 0; i < 500; ++i) pbf.insert(i);
     for (uint64_t i = 0; i < 500; ++i) {
         ASSERT_TRUE(pbf.query(i));
@@ -132,7 +134,7 @@ TEST(partitioned_bf_no_false_negatives) {
 }
 
 TEST(partitioned_bf_false_positive_rate) {
-    PartitionedBloomFilter pbf(10000, 7);
+    BlockedBloomFilter pbf(10000, 7);
     for (uint64_t i = 0; i < 500; ++i) pbf.insert(i);
 
     size_t fp = 0;
@@ -141,13 +143,13 @@ TEST(partitioned_bf_false_positive_rate) {
         if (pbf.query(i)) ++fp;
     }
     double fpr = static_cast<double>(fp) / test_count;
-    printf("    PartitionedBF FPR: %.4f\n", fpr);
+    printf("    BlockedBF (partitioned layout) FPR: %.4f\n", fpr);
     ASSERT_TRUE(fpr < 0.05);
     PASS("partitioned_bf_false_positive_rate");
 }
 
 TEST(partitioned_bf_empty_query) {
-    PartitionedBloomFilter pbf(1000, 5);
+    BlockedBloomFilter pbf(1000, 5);
     for (uint64_t i = 0; i < 100; ++i) {
         ASSERT_TRUE(!pbf.query(i));
     }
@@ -155,7 +157,7 @@ TEST(partitioned_bf_empty_query) {
 }
 
 TEST(partitioned_bf_count_collisions) {
-    PartitionedBloomFilter pbf(10000, 7);
+    BlockedBloomFilter pbf(10000, 7);
     ASSERT_TRUE(pbf.count_collisions(42) == 0);
     pbf.insert(42);
     ASSERT_TRUE(pbf.count_collisions(42) == 7);
@@ -163,7 +165,7 @@ TEST(partitioned_bf_count_collisions) {
 }
 
 TEST(partitioned_bf_partition_size) {
-    PartitionedBloomFilter pbf(7000, 7);
+    BlockedBloomFilter pbf(7000, 7);
     ASSERT_TRUE(pbf.partition_size() == 1000);
     ASSERT_TRUE(pbf.num_bits() == 7000);
     ASSERT_TRUE(pbf.num_hashes() == 7);
@@ -207,6 +209,12 @@ TEST(bf_stash_size_bits) {
     BloomFilterStash<uint64_t> stash(2048, 3);
     ASSERT_TRUE(stash.size_bits() == 2048);
     PASS("bf_stash_size_bits");
+}
+
+TEST(bf_stash_is_probabilistic) {
+    BloomFilterStash<uint64_t> stash(2048, 3);
+    ASSERT_TRUE(stash.is_probabilistic());
+    PASS("bf_stash_is_probabilistic");
 }
 
 // ===========================================================================
@@ -256,6 +264,47 @@ TEST(lp_stash_size_bits) {
     PASS("lp_stash_size_bits");
 }
 
+TEST(lp_stash_is_deterministic) {
+    LinearProbingStash<uint64_t> stash(10);
+    ASSERT_TRUE(!stash.is_probabilistic());
+    PASS("lp_stash_is_deterministic");
+}
+
+TEST(lp_stash_duplicate_insert_no_capacity_loss) {
+    LinearProbingStash<uint64_t> stash(2);
+    ASSERT_TRUE(stash.insert(42));
+    ASSERT_TRUE(stash.insert(42));
+    ASSERT_TRUE(stash.insert(42));
+    ASSERT_TRUE(stash.insert(99));
+    ASSERT_TRUE(!stash.insert(123));
+    PASS("lp_stash_duplicate_insert_no_capacity_loss");
+}
+
+TEST(read_weighted_lines_parses_count_suffix) {
+    const std::string path = "tests/tmp_weighted_lines.txt";
+    {
+        std::ofstream out(path);
+        out << "alpha:7\n";
+        out << "beta\n";
+        out << "gamma:not-a-number\n";
+        out << "delta:0\n";
+    }
+
+    auto entries = read_weighted_lines(path);
+    ASSERT_TRUE(entries.size() == 4);
+    ASSERT_TRUE(entries[0].key == "alpha");
+    ASSERT_TRUE(entries[0].count == 7);
+    ASSERT_TRUE(entries[1].key == "beta");
+    ASSERT_TRUE(entries[1].count == 1);
+    ASSERT_TRUE(entries[2].key == "gamma:not-a-number");
+    ASSERT_TRUE(entries[2].count == 1);
+    ASSERT_TRUE(entries[3].key == "delta");
+    ASSERT_TRUE(entries[3].count == 1);
+
+    std::remove(path.c_str());
+    PASS("read_weighted_lines_parses_count_suffix");
+}
+
 // ===========================================================================
 // StashedBloomFilter with BloomFilterStash (Positive mode)
 // ===========================================================================
@@ -273,11 +322,11 @@ TEST(stashed_bf_pos_no_false_negatives) {
 
 TEST(stashed_bf_pos_query_returns_prob_bool) {
     BloomFilterStash<uint64_t> stash(2000, 5);
-    StashedBloomFilter sbf(8000, 7, std::move(stash), 5, StashMode::Positive);
+    StashedBloomFilter sbf(8000, 7, std::move(stash), 0, StashMode::Positive);
 
     sbf.insert(42);
     ProbBool result = sbf.query(42);
-    ASSERT_TRUE(result == ProbBool::True || result == ProbBool::Maybe);
+    ASSERT_TRUE(result == ProbBool::Maybe);
     PASS("stashed_bf_pos_query_returns_prob_bool");
 }
 
