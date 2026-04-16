@@ -8,30 +8,46 @@
 #include "prob_bool.h"
 #include "stash_set.h"
 
-// StashMode controls the semantics of the stash:
-//   Positive — stash stores "definitely yes" keys (high-collision keys go here)
-//   Negative — stash stores "definitely no" keys (keys that didn't collide)
-enum class StashMode { Positive, Negative };
+/**
+ * @file stashed_bloom_filter.h
+ * @brief Stash-augmented Bloom filter with tri-valued query semantics.
+ */
 
-// StashedBloomFilter<Key, HashPolicy, Stash>
-//
-// A Bloom filter augmented with a secondary stash structure. Keys whose
-// insertion would cause >= collision_threshold bit collisions in the primary
-// filter are diverted to the stash instead.
-//
-// Template parameters:
-//   Key        — element type
-//   HashPolicy — must provide static hash_pair(const Key&)
-//   Stash      — a StashSet implementation (e.g. BloomFilterStash, LinearProbingStash)
+/**
+ * @brief Defines how stash entries are interpreted at query time.
+ */
+enum class StashMode {
+    Positive,  /**< Stash hit indicates positive evidence. */
+    Negative,  /**< Stash hit indicates known negative override. */
+};
+
+/**
+ * @brief Bloom filter augmented by a secondary stash structure.
+ *
+ * In positive mode, inserts are routed by collision count: keys that would
+ * collide with at least `collision_threshold` set bits in the primary filter
+ * are diverted to the stash. If stash insertion fails, insertion falls back to
+ * the primary Bloom filter.
+ *
+ * In negative mode, regular inserts go to the primary filter; the stash can be
+ * populated with known negatives that were false positives in the primary.
+ *
+ * @tparam Key Element type.
+ * @tparam HashPolicy Hash policy used by the primary Bloom filter.
+ * @tparam Stash A `StashSet` implementation.
+ */
 template <typename Key = uint64_t, typename HashPolicy = DefaultHashPolicy,
           typename Stash = BloomFilterStash<Key, HashPolicy>>
 class StashedBloomFilter {
    public:
-    // primary_bits:          bits allocated to the primary Bloom filter
-    // num_hashes:            hash function count for the primary filter
-    // stash:                 pre-constructed stash (caller controls its size)
-    // collision_threshold:   number of already-set bit positions that triggers stashing
-    // mode:                  Positive or Negative stash semantics
+    /**
+     * @brief Constructs a stashed Bloom filter.
+     * @param primary_bits Bit budget for the primary Bloom filter.
+     * @param num_hashes Number of hash probes in the primary filter.
+     * @param stash Pre-constructed stash instance (controls stash budget/type).
+     * @param collision_threshold Stashing threshold on primary collision count.
+     * @param mode Stash semantics mode.
+     */
     StashedBloomFilter(size_t primary_bits, size_t num_hashes, Stash stash,
                        size_t collision_threshold, StashMode mode = StashMode::Positive)
         : _primary(primary_bits, num_hashes),
@@ -39,9 +55,12 @@ class StashedBloomFilter {
           _collision_threshold(collision_threshold),
           _mode(mode) {}
 
-    // Insert a positive element (known to be in the set).
-    // Positive mode: high-collision keys are diverted to stash.
-    // Negative mode: always goes directly to primary BF.
+    /**
+     * @brief Inserts a known-positive key.
+     *
+     * In `StashMode::Positive`, high-collision keys are diverted to the stash.
+     * In `StashMode::Negative`, all inserts go to the primary Bloom filter.
+     */
     void insert(const Key& key) {
         if (_mode == StashMode::Negative) {
             _primary.insert(key);
@@ -60,9 +79,14 @@ class StashedBloomFilter {
         }
     }
 
-    // Insert a known-negative key into the stash if it would be a false positive
-    // in the primary filter. Only meaningful in Negative mode.
-    // Returns true if the key was a false positive and was successfully stashed.
+    /**
+     * @brief Attempts to stash a known-negative key in negative mode workflows.
+     *
+     * The key is inserted into the stash only when it is currently a positive
+     * in the primary Bloom filter.
+     *
+     * @return `true` if the key was a primary false positive and was stashed.
+     */
     bool insert_negative(const Key& key) {
         if (_primary.query(key)) {
             if (_stash.insert(key)) {
@@ -73,8 +97,14 @@ class StashedBloomFilter {
         return false;
     }
 
-    // Populate the negative stash from a range of known-negative keys.
-    // Returns the number of false positives successfully stashed.
+    /**
+     * @brief Bulk-populates negative stash entries from an iterator range.
+     *
+     * @tparam InputIt Iterator over keys.
+     * @param begin Start of key range.
+     * @param end End of key range.
+     * @return Number of keys successfully stashed via `insert_negative`.
+     */
     template <typename InputIt>
     size_t populate_negative_stash(InputIt begin, InputIt end) {
         size_t count = 0;
@@ -86,6 +116,20 @@ class StashedBloomFilter {
         return count;
     }
 
+    /**
+     * @brief Queries key membership with tri-valued semantics.
+     *
+     * Positive mode:
+     * - deterministic stash hit => `ProbBool::True`
+     * - probabilistic stash hit => `ProbBool::Maybe`
+     * - primary hit => `ProbBool::Maybe`
+     * - otherwise => `ProbBool::False`
+     *
+     * Negative mode:
+     * - stash hit => `ProbBool::False`
+     * - primary hit => `ProbBool::Maybe`
+     * - otherwise => `ProbBool::False`
+     */
     [[nodiscard]] ProbBool query(const Key& key) const {
         bool in_stash = _stash.query(key);
         bool in_primary = _primary.query(key);
@@ -111,17 +155,25 @@ class StashedBloomFilter {
         return ProbBool::False;
     }
 
-    // Convenience: returns true if query is True or Maybe.
+    /** @brief Convenience wrapper equivalent to `is_positive(query(key))`. */
     [[nodiscard]] bool query_bool(const Key& key) const { return is_positive(query(key)); }
 
+    /** @brief Returns primary Bloom filter bit budget. */
     [[nodiscard]] size_t primary_bits() const { return _primary.num_bits(); }
+    /** @brief Returns stash bit budget. */
     [[nodiscard]] size_t stash_bits() const { return _stash.size_bits(); }
+    /** @brief Returns total bit budget (`primary_bits + stash_bits`). */
     [[nodiscard]] size_t total_bits() const { return primary_bits() + stash_bits(); }
+    /** @brief Returns collision threshold used in positive mode routing. */
     [[nodiscard]] size_t collision_threshold() const { return _collision_threshold; }
+    /** @brief Returns number of successful stash insertions. */
     [[nodiscard]] size_t stash_count() const { return _stash_count; }
+    /** @brief Returns current stash mode. */
     [[nodiscard]] StashMode mode() const { return _mode; }
 
+    /** @brief Accesses the primary Bloom filter. */
     [[nodiscard]] const BloomFilter<Key, HashPolicy>& primary() const { return _primary; }
+    /** @brief Accesses the stash instance. */
     [[nodiscard]] const Stash& stash() const { return _stash; }
 
    private:

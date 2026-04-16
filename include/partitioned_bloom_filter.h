@@ -6,15 +6,37 @@
 
 #include "bloom_filter.h"
 
-// Partitioned Bloom filter: the m-bit array is divided into k equal partitions
-// of (m/k) bits each. Hash function i maps strictly into partition i.
-// This can yield different FPR characteristics compared to a standard BF.
+/**
+ * @file partitioned_bloom_filter.h
+ * @brief Partitioned (blocked) Bloom filter baseline.
+ */
+
+/**
+ * @brief Bloom filter variant that partitions the bit array into hash-local
+ * segments.
+ *
+ * The `m`-bit table is divided into `k` equal partitions of size `m / k`.
+ * Hash probe `i` maps only into partition `i`.
+ *
+ * @tparam Key Type of keys inserted and queried.
+ * @tparam HashPolicy Hash policy providing
+ * `static std::pair<uint64_t, uint64_t> hash_pair(const Key&)`.
+ */
 template <typename Key = uint64_t, typename HashPolicy = DefaultHashPolicy>
 class BlockedBloomFilter {
    public:
+    /**
+     * @brief Constructs a partitioned Bloom filter.
+     * @param num_bits Total bits across all partitions.
+     * @param num_hashes Number of partitions and probes per operation.
+     */
     BlockedBloomFilter(size_t num_bits, size_t num_hashes)
         : _bits(num_bits, false), _num_hashes(num_hashes), _partition_size(num_bits / num_hashes) {}
 
+    /**
+     * @brief Inserts a key into the filter.
+     * @param key Key to insert.
+     */
     void insert(const Key& key) {
         auto [h1, h2] = HashPolicy::hash_pair(key);
         for (size_t i = 0; i < _num_hashes; ++i) {
@@ -22,6 +44,12 @@ class BlockedBloomFilter {
         }
     }
 
+    /**
+     * @brief Queries key membership.
+     * @param key Key to query.
+     * @return `true` if all probed bits are set (possible false positive),
+     * `false` otherwise.
+     */
     [[nodiscard]] bool query(const Key& key) const {
         auto [h1, h2] = HashPolicy::hash_pair(key);
         for (size_t i = 0; i < _num_hashes; ++i) {
@@ -32,6 +60,11 @@ class BlockedBloomFilter {
         return true;
     }
 
+    /**
+     * @brief Counts how many probe positions are already set for a key.
+     * @param key Key to evaluate.
+     * @return Number of set bits among partition-constrained probe positions.
+     */
     [[nodiscard]] size_t count_collisions(const Key& key) const {
         auto [h1, h2] = HashPolicy::hash_pair(key);
         size_t count = 0;
@@ -43,10 +76,14 @@ class BlockedBloomFilter {
         return count;
     }
 
+    /** @brief Returns the total number of bits in the table. */
     [[nodiscard]] size_t num_bits() const { return _bits.size(); }
+    /** @brief Returns the number of hash probes per operation. */
     [[nodiscard]] size_t num_hashes() const { return _num_hashes; }
+    /** @brief Returns bits per partition (`num_bits() / num_hashes()`). */
     [[nodiscard]] size_t partition_size() const { return _partition_size; }
 
+    /** @brief Counts currently set bits in the table. */
     [[nodiscard]] size_t bits_set() const {
         size_t count = 0;
         for (bool b : _bits) {
@@ -58,7 +95,9 @@ class BlockedBloomFilter {
     }
 
    private:
-    // Hash i maps into partition i: [i * partition_size, (i+1) * partition_size)
+    /**
+     * @brief Computes the i-th index constrained to partition i.
+     */
     [[nodiscard]] size_t nth_hash(uint64_t h1, uint64_t h2, size_t i) const {
         return i * _partition_size + ((h1 + i * h2) % _partition_size);
     }
