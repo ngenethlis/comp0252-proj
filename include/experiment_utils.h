@@ -82,8 +82,8 @@ inline std::vector<uint64_t> generate_zipf_keys(size_t n, double s, uint64_t max
  * @brief Non-overlapping key sets used by experiment pipelines.
  */
 struct DataSplit {
-    std::vector<uint64_t> positives;  /**< Keys inserted into filters. */
-    std::vector<uint64_t> stash_negatives;  /**< Known negatives for negative-stash population. */
+    std::vector<uint64_t> positives;       /**< Keys inserted into filters. */
+    std::vector<uint64_t> stash_negatives; /**< Known negatives for negative-stash population. */
     std::vector<uint64_t> test_negatives;  /**< Known negatives used for FPR measurement. */
 };
 
@@ -209,8 +209,8 @@ inline std::vector<std::string> read_lines(const std::string& path) {
  * @brief String key with optional frequency/count weight.
  */
 struct WeightedStringEntry {
-    std::string key;   /**< Entry key. */
-    uint64_t count = 1;  /**< Parsed count (defaults to 1). */
+    std::string key;    /**< Entry key. */
+    uint64_t count = 1; /**< Parsed count (defaults to 1). */
 };
 
 /**
@@ -262,7 +262,7 @@ inline std::vector<WeightedStringEntry> read_weighted_lines(const std::string& p
  * @return Vector of sampled indices in `[0, weights.size())`.
  */
 inline std::vector<size_t> sample_weighted_indices(size_t n, const std::vector<uint64_t>& weights,
-                                                    uint64_t seed) {
+                                                   uint64_t seed) {
     std::vector<size_t> indices;
     if (weights.empty() || n == 0) {
         return indices;

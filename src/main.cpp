@@ -44,8 +44,7 @@ static void csv_row(Args&&... args) {
 }
 
 static std::vector<std::string> make_data_derived_negatives(
-    const std::vector<std::string>& positives, size_t count,
-    const std::string& tag = "neg") {
+    const std::vector<std::string>& positives, size_t count, const std::string& tag = "neg") {
     std::vector<std::string> negatives;
     if (positives.empty() || count == 0) {
         return negatives;
@@ -71,8 +70,7 @@ static std::vector<std::string> make_data_derived_negatives(
 }
 
 static void split_weighted_entries(const std::vector<WeightedStringEntry>& entries,
-                                   std::vector<std::string>* keys,
-                                   std::vector<uint64_t>* counts) {
+                                   std::vector<std::string>* keys, std::vector<uint64_t>* counts) {
     keys->clear();
     counts->clear();
     keys->reserve(entries.size());
@@ -244,7 +242,8 @@ static void run_exp2_negative_stash() {
             blocked_bf.insert(k);
         }
         double blocked_fpr = measure_fpr(blocked_bf, practical_eval);
-        double blocked_reduction = baseline_fpr > 0 ? (1.0 - blocked_fpr / baseline_fpr) * 100.0 : 0.0;
+        double blocked_reduction =
+            baseline_fpr > 0 ? (1.0 - blocked_fpr / baseline_fpr) * 100.0 : 0.0;
         csv_row("exp2", "blocked_bf", "-", 0.0, baseline_fpr, blocked_fpr, blocked_reduction, 0.0,
                 0);
     }
@@ -273,10 +272,9 @@ static void run_exp2_negative_stash() {
             sbf.populate_negative_stash(scan_set.begin(), scan_set.end());
             double fpr = measure_fpr_stashed(sbf, eval_set);
             auto pos = count_query_results(sbf, data.positives);
-            double fnr = data.positives.empty()
-                             ? 0.0
-                             : static_cast<double>(pos.false_count) /
-                                   static_cast<double>(data.positives.size());
+            double fnr = data.positives.empty() ? 0.0
+                                                : static_cast<double>(pos.false_count) /
+                                                      static_cast<double>(data.positives.size());
             double reduction = baseline_fpr > 0 ? (1.0 - fpr / baseline_fpr) * 100.0 : 0.0;
             csv_row("exp2", "bf_stash", scenario, frac, baseline_fpr, fpr, reduction, fnr,
                     sbf.stash_count());
@@ -294,10 +292,9 @@ static void run_exp2_negative_stash() {
             sbf.populate_negative_stash(scan_set.begin(), scan_set.end());
             double fpr = measure_fpr_stashed(sbf, eval_set);
             auto pos = count_query_results(sbf, data.positives);
-            double fnr = data.positives.empty()
-                             ? 0.0
-                             : static_cast<double>(pos.false_count) /
-                                   static_cast<double>(data.positives.size());
+            double fnr = data.positives.empty() ? 0.0
+                                                : static_cast<double>(pos.false_count) /
+                                                      static_cast<double>(data.positives.size());
             double reduction = baseline_fpr > 0 ? (1.0 - fpr / baseline_fpr) * 100.0 : 0.0;
             csv_row("exp2", "lp_stash", scenario, frac, baseline_fpr, fpr, reduction, fnr,
                     sbf.stash_count());
@@ -331,8 +328,7 @@ static void run_exp3_load() {
     size_t lp_capacity = stash_bits / 64;
     size_t collision_threshold = 3;
 
-    size_t n_values[] = {500, 1000, 2000, 3000, 5000, 7500, 10000, 15000,
-                         20000, 25000, 30000};
+    size_t n_values[] = {500, 1000, 2000, 3000, 5000, 7500, 10000, 15000, 20000, 25000, 30000};
 
     for (size_t n : n_values) {
         std::cerr << "  n=" << n << "...\n";
@@ -393,10 +389,9 @@ static void run_exp3_load() {
             }
             sbf.populate_negative_stash(data.stash_negatives.begin(), data.stash_negatives.end());
             auto pos = count_query_results(sbf, data.positives);
-            double fnr = data.positives.empty()
-                             ? 0.0
-                             : static_cast<double>(pos.false_count) /
-                                   static_cast<double>(data.positives.size());
+            double fnr = data.positives.empty() ? 0.0
+                                                : static_cast<double>(pos.false_count) /
+                                                      static_cast<double>(data.positives.size());
             csv_row("exp3", "stashed_bf_neg", n, measure_fpr_stashed(sbf, data.test_negatives), 0.0,
                     0.0, fnr, sbf.stash_count());
         }
@@ -411,10 +406,9 @@ static void run_exp3_load() {
             }
             sbf.populate_negative_stash(data.stash_negatives.begin(), data.stash_negatives.end());
             auto pos = count_query_results(sbf, data.positives);
-            double fnr = data.positives.empty()
-                             ? 0.0
-                             : static_cast<double>(pos.false_count) /
-                                   static_cast<double>(data.positives.size());
+            double fnr = data.positives.empty() ? 0.0
+                                                : static_cast<double>(pos.false_count) /
+                                                      static_cast<double>(data.positives.size());
             csv_row("exp3", "stashed_lp_neg", n, measure_fpr_stashed(sbf, data.test_negatives), 0.0,
                     0.0, fnr, sbf.stash_count());
         }
@@ -494,10 +488,9 @@ static void run_exp4_stash_fraction() {
             }
             sbf.populate_negative_stash(data.stash_negatives.begin(), data.stash_negatives.end());
             auto pos = count_query_results(sbf, data.positives);
-            double fnr = data.positives.empty()
-                             ? 0.0
-                             : static_cast<double>(pos.false_count) /
-                                   static_cast<double>(data.positives.size());
+            double fnr = data.positives.empty() ? 0.0
+                                                : static_cast<double>(pos.false_count) /
+                                                      static_cast<double>(data.positives.size());
             csv_row("exp4", "bf_stash", "negative", frac,
                     measure_fpr_stashed(sbf, data.test_negatives), 0.0, 0.0, fnr,
                     sbf.stash_count());
@@ -527,10 +520,9 @@ static void run_exp4_stash_fraction() {
             }
             sbf.populate_negative_stash(data.stash_negatives.begin(), data.stash_negatives.end());
             auto pos = count_query_results(sbf, data.positives);
-            double fnr = data.positives.empty()
-                             ? 0.0
-                             : static_cast<double>(pos.false_count) /
-                                   static_cast<double>(data.positives.size());
+            double fnr = data.positives.empty() ? 0.0
+                                                : static_cast<double>(pos.false_count) /
+                                                      static_cast<double>(data.positives.size());
             csv_row("exp4", "lp_stash", "negative", frac,
                     measure_fpr_stashed(sbf, data.test_negatives), 0.0, 0.0, fnr,
                     sbf.stash_count());
@@ -618,8 +610,8 @@ static void run_exp5_passwords(const std::string& password_file) {
             }
         }
         double fpr = measure_fpr(pbf, negatives);
-        csv_row("exp5", "partitioned_bf", n, total_bits, 0, pos_maybe, pos_false, 0.0, 0, 0, 0,
-                fpr, 0.0, 0);
+        csv_row("exp5", "partitioned_bf", n, total_bits, 0, pos_maybe, pos_false, 0.0, 0, 0, 0, fpr,
+                0.0, 0);
     }
     // Stashed BF + BF stash + positive
     {
@@ -646,13 +638,13 @@ static void run_exp5_passwords(const std::string& password_file) {
             }
         }
         auto neg = count_query_results(sbf, negatives);
-        double certainty_rate = total_positive_queries > 0
-                                    ? static_cast<double>(pos_true) /
-                                          static_cast<double>(total_positive_queries)
-                                    : 0.0;
+        double certainty_rate =
+            total_positive_queries > 0
+                ? static_cast<double>(pos_true) / static_cast<double>(total_positive_queries)
+                : 0.0;
         csv_row("exp5", "stashed_bf_pos", n, total_bits, pos_true, pos_maybe, pos_false,
-                certainty_rate, neg.true_count, neg.maybe_count, neg.false_count, neg.positive_rate(),
-                neg.true_rate(), sbf.stash_count());
+                certainty_rate, neg.true_count, neg.maybe_count, neg.false_count,
+                neg.positive_rate(), neg.true_rate(), sbf.stash_count());
     }
     // Stashed BF + LP stash + positive
     {
@@ -679,13 +671,13 @@ static void run_exp5_passwords(const std::string& password_file) {
             }
         }
         auto neg = count_query_results(sbf, negatives);
-        double certainty_rate = total_positive_queries > 0
-                                    ? static_cast<double>(pos_true) /
-                                          static_cast<double>(total_positive_queries)
-                                    : 0.0;
+        double certainty_rate =
+            total_positive_queries > 0
+                ? static_cast<double>(pos_true) / static_cast<double>(total_positive_queries)
+                : 0.0;
         csv_row("exp5", "stashed_lp_pos", n, total_bits, pos_true, pos_maybe, pos_false,
-                certainty_rate, neg.true_count, neg.maybe_count, neg.false_count, neg.positive_rate(),
-                neg.true_rate(), sbf.stash_count());
+                certainty_rate, neg.true_count, neg.maybe_count, neg.false_count,
+                neg.positive_rate(), neg.true_rate(), sbf.stash_count());
     }
     // Stashed BF + BF stash + negative
     {
@@ -713,13 +705,13 @@ static void run_exp5_passwords(const std::string& password_file) {
             }
         }
         auto neg = count_query_results(sbf, negatives);
-        double certainty_rate = total_positive_queries > 0
-                                    ? static_cast<double>(pos_true) /
-                                          static_cast<double>(total_positive_queries)
-                                    : 0.0;
+        double certainty_rate =
+            total_positive_queries > 0
+                ? static_cast<double>(pos_true) / static_cast<double>(total_positive_queries)
+                : 0.0;
         csv_row("exp5", "stashed_bf_neg", n, total_bits, pos_true, pos_maybe, pos_false,
-                certainty_rate, neg.true_count, neg.maybe_count, neg.false_count, neg.positive_rate(),
-                neg.true_rate(), sbf.stash_count());
+                certainty_rate, neg.true_count, neg.maybe_count, neg.false_count,
+                neg.positive_rate(), neg.true_rate(), sbf.stash_count());
     }
     // Stashed BF + LP stash + negative
     {
@@ -747,13 +739,13 @@ static void run_exp5_passwords(const std::string& password_file) {
             }
         }
         auto neg = count_query_results(sbf, negatives);
-        double certainty_rate = total_positive_queries > 0
-                                    ? static_cast<double>(pos_true) /
-                                          static_cast<double>(total_positive_queries)
-                                    : 0.0;
+        double certainty_rate =
+            total_positive_queries > 0
+                ? static_cast<double>(pos_true) / static_cast<double>(total_positive_queries)
+                : 0.0;
         csv_row("exp5", "stashed_lp_neg", n, total_bits, pos_true, pos_maybe, pos_false,
-                certainty_rate, neg.true_count, neg.maybe_count, neg.false_count, neg.positive_rate(),
-                neg.true_rate(), sbf.stash_count());
+                certainty_rate, neg.true_count, neg.maybe_count, neg.false_count,
+                neg.positive_rate(), neg.true_rate(), sbf.stash_count());
     }
     std::cerr << "  done.\n";
 }
@@ -804,18 +796,19 @@ static void run_exp6_hot_positive(const std::string& password_file) {
         std::vector<size_t> neg_indices;
     };
     std::vector<QueryModel> query_models;
-    query_models.push_back(
-        {"count_weighted", sample_weighted_indices(pos_queries, password_counts, gSeed + 600),
-         sample_weighted_indices(neg_queries, negative_weights, gSeed + 601)});
+    query_models.push_back({"count_weighted",
+                            sample_weighted_indices(pos_queries, password_counts, gSeed + 600),
+                            sample_weighted_indices(neg_queries, negative_weights, gSeed + 601)});
     query_models.push_back(
         {"zipf",
          ranks_to_zero_based_indices(
-             generate_zipf_keys(pos_queries, 1.2, static_cast<uint64_t>(passwords.size()), gSeed + 602),
+             generate_zipf_keys(pos_queries, 1.2, static_cast<uint64_t>(passwords.size()),
+                                gSeed + 602),
              passwords.size()),
-         ranks_to_zero_based_indices(generate_zipf_keys(neg_queries, 1.1,
-                                                        static_cast<uint64_t>(negatives.size()),
-                                                        gSeed + 603),
-                                     negatives.size())});
+         ranks_to_zero_based_indices(
+             generate_zipf_keys(neg_queries, 1.1, static_cast<uint64_t>(negatives.size()),
+                                gSeed + 603),
+             negatives.size())});
 
     csv_header(
         "experiment,query_model,filter_type,n_passwords,total_bits,"
@@ -861,10 +854,10 @@ static void run_exp6_hot_positive(const std::string& password_file) {
                                            ? static_cast<double>(pos_maybe + neg_maybe) /
                                                  static_cast<double>(total_queries)
                                            : 0.0;
-            double baseline_fpr =
-                model.neg_indices.empty()
-                    ? 0.0
-                    : static_cast<double>(neg_maybe) / static_cast<double>(model.neg_indices.size());
+            double baseline_fpr = model.neg_indices.empty()
+                                      ? 0.0
+                                      : static_cast<double>(neg_maybe) /
+                                            static_cast<double>(model.neg_indices.size());
 
             csv_row("exp6", model.name, "bloom_filter", n, total_bits, model.pos_indices.size(),
                     model.neg_indices.size(), 0, pos_maybe, pos_false, 0, neg_maybe, neg_false, 0.0,
@@ -903,14 +896,14 @@ static void run_exp6_hot_positive(const std::string& password_file) {
                                          ? static_cast<double>(pos_maybe + neg_maybe) /
                                                static_cast<double>(total_queries)
                                          : 0.0;
-            double fpr =
-                model.neg_indices.empty()
-                    ? 0.0
-                    : static_cast<double>(neg_maybe) / static_cast<double>(model.neg_indices.size());
-            double downstream_reduction = baseline_downstream_rate > 0
-                                              ? (1.0 - downstream_rate / baseline_downstream_rate) *
-                                                    100.0
-                                              : 0.0;
+            double fpr = model.neg_indices.empty()
+                             ? 0.0
+                             : static_cast<double>(neg_maybe) /
+                                   static_cast<double>(model.neg_indices.size());
+            double downstream_reduction =
+                baseline_downstream_rate > 0
+                    ? (1.0 - downstream_rate / baseline_downstream_rate) * 100.0
+                    : 0.0;
 
             csv_row("exp6", model.name, "partitioned_bf", n, total_bits, model.pos_indices.size(),
                     model.neg_indices.size(), 0, pos_maybe, pos_false, 0, neg_maybe, neg_false, 0.0,
@@ -921,7 +914,8 @@ static void run_exp6_hot_positive(const std::string& password_file) {
         {
             LinearProbingStash<std::string> stash(lp_capacity);
             StashedBloomFilter<std::string, DefaultHashPolicy, LinearProbingStash<std::string>> sbf(
-                primary_bits, kNumHashes, std::move(stash), collision_threshold, StashMode::Positive);
+                primary_bits, kNumHashes, std::move(stash), collision_threshold,
+                StashMode::Positive);
             for (const auto& pw : passwords) {
                 sbf.insert(pw);
             }
@@ -961,27 +955,26 @@ static void run_exp6_hot_positive(const std::string& password_file) {
             }
 
             size_t total_queries = model.pos_indices.size() + model.neg_indices.size();
-            double certainty_rate = model.pos_indices.empty()
-                                        ? 0.0
-                                        : static_cast<double>(pos_true) /
-                                              static_cast<double>(model.pos_indices.size());
-            double fpr =
+            double certainty_rate =
+                model.pos_indices.empty()
+                    ? 0.0
+                    : static_cast<double>(pos_true) / static_cast<double>(model.pos_indices.size());
+            double fpr = model.neg_indices.empty()
+                             ? 0.0
+                             : static_cast<double>(neg_true + neg_maybe) /
+                                   static_cast<double>(model.neg_indices.size());
+            double false_certainty =
                 model.neg_indices.empty()
                     ? 0.0
-                    : static_cast<double>(neg_true + neg_maybe) /
-                          static_cast<double>(model.neg_indices.size());
-            double false_certainty = model.neg_indices.empty()
-                                         ? 0.0
-                                         : static_cast<double>(neg_true) /
-                                               static_cast<double>(model.neg_indices.size());
+                    : static_cast<double>(neg_true) / static_cast<double>(model.neg_indices.size());
             double downstream_rate = total_queries > 0
                                          ? static_cast<double>(pos_maybe + neg_maybe) /
                                                static_cast<double>(total_queries)
                                          : 0.0;
-            double downstream_reduction = baseline_downstream_rate > 0
-                                              ? (1.0 - downstream_rate / baseline_downstream_rate) *
-                                                    100.0
-                                              : 0.0;
+            double downstream_reduction =
+                baseline_downstream_rate > 0
+                    ? (1.0 - downstream_rate / baseline_downstream_rate) * 100.0
+                    : 0.0;
 
             csv_row("exp6", model.name, "stashed_lp_pos", n, total_bits, model.pos_indices.size(),
                     model.neg_indices.size(), pos_true, pos_maybe, pos_false, neg_true, neg_maybe,
@@ -1055,7 +1048,8 @@ static void run_exp7_repeated_negative(const std::string& password_file) {
     {
         QueryModel count_model;
         count_model.name = "count_weighted";
-        count_model.warmup_indices = sample_weighted_indices(warmup_queries, negative_weights, gSeed + 700);
+        count_model.warmup_indices =
+            sample_weighted_indices(warmup_queries, negative_weights, gSeed + 700);
         count_model.scenarios.push_back(
             {"in_dist", &warmup_negatives,
              sample_weighted_indices(eval_queries, negative_weights, gSeed + 701)});
@@ -1077,20 +1071,21 @@ static void run_exp7_repeated_negative(const std::string& password_file) {
         zipf_model.scenarios.push_back(
             {"in_dist", &warmup_negatives,
              ranks_to_zero_based_indices(
-                 generate_zipf_keys(eval_queries, 1.15, static_cast<uint64_t>(warmup_negatives.size()),
-                                    gSeed + 711),
+                 generate_zipf_keys(eval_queries, 1.15,
+                                    static_cast<uint64_t>(warmup_negatives.size()), gSeed + 711),
                  warmup_negatives.size())});
         zipf_model.scenarios.push_back(
             {"cross_pool", &cross_pool_negatives,
              ranks_to_zero_based_indices(
-                 generate_zipf_keys(eval_queries, 1.15, static_cast<uint64_t>(cross_pool_negatives.size()),
+                 generate_zipf_keys(eval_queries, 1.15,
+                                    static_cast<uint64_t>(cross_pool_negatives.size()),
                                     gSeed + 712),
                  cross_pool_negatives.size())});
         zipf_model.scenarios.push_back(
             {"shifted_distribution", &warmup_negatives,
              ranks_to_zero_based_indices(
-                 generate_zipf_keys(eval_queries, 0.85, static_cast<uint64_t>(warmup_negatives.size()),
-                                    gSeed + 713),
+                 generate_zipf_keys(eval_queries, 0.85,
+                                    static_cast<uint64_t>(warmup_negatives.size()), gSeed + 713),
                  warmup_negatives.size())});
         query_models.push_back(std::move(zipf_model));
     }
@@ -1157,8 +1152,8 @@ static void run_exp7_repeated_negative(const std::string& password_file) {
             // LP negative stash with warm-up then this scenario's evaluation stream.
             {
                 LinearProbingStash<std::string> stash(lp_capacity);
-                StashedBloomFilter<std::string, DefaultHashPolicy, LinearProbingStash<std::string>> sbf(
-                    primary_bits, kNumHashes, std::move(stash), 0, StashMode::Negative);
+                StashedBloomFilter<std::string, DefaultHashPolicy, LinearProbingStash<std::string>>
+                    sbf(primary_bits, kNumHashes, std::move(stash), 0, StashMode::Negative);
                 for (const auto& pw : passwords) {
                     sbf.insert(pw);
                 }
@@ -1198,7 +1193,6 @@ static void run_exp7_repeated_negative(const std::string& password_file) {
     }
     std::cerr << "  done.\n";
 }
-
 
 // ---------------------------------------------------------------------------
 // Experiment 8 — Warm-up budget sweep (negative LP stash)
@@ -1293,7 +1287,8 @@ static void run_exp8_warmup_budget(const std::string& password_file) {
             {"cross_pool", &cross_pool_negatives,
              ranks_to_zero_based_indices(
                  generate_zipf_keys(eval_queries, 1.15,
-                                    static_cast<uint64_t>(cross_pool_negatives.size()), gSeed + 911),
+                                    static_cast<uint64_t>(cross_pool_negatives.size()),
+                                    gSeed + 911),
                  cross_pool_negatives.size())});
         zipf_model.scenarios.push_back(
             {"shifted_distribution", &warmup_negatives,
@@ -1366,9 +1361,9 @@ static void run_exp8_warmup_budget(const std::string& password_file) {
 
                 std::vector<size_t> warmup_indices;
                 if (model.name == "count_weighted") {
-                    warmup_indices = sample_weighted_indices(
-                        warmup_queries, negative_weights,
-                        gSeed + 920 + static_cast<uint64_t>(budget_idx));
+                    warmup_indices =
+                        sample_weighted_indices(warmup_queries, negative_weights,
+                                                gSeed + 920 + static_cast<uint64_t>(budget_idx));
                 } else {
                     warmup_indices = ranks_to_zero_based_indices(
                         generate_zipf_keys(warmup_queries, 1.15,

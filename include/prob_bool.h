@@ -11,9 +11,9 @@
  * @brief Probabilistic query outcome.
  */
 enum class ProbBool {
-    True,   /**< definitely in the set */
-    Maybe,  /**< probably in the set (Bloom filter positive) */
-    False,  /**< definitely not in the set */
+    True,  /**< definitely in the set */
+    Maybe, /**< probably in the set (Bloom filter positive) */
+    False, /**< definitely not in the set */
 };
 
 /**

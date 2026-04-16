@@ -17,8 +17,8 @@
  * @brief Defines how stash entries are interpreted at query time.
  */
 enum class StashMode {
-    Positive,  /**< Stash hit indicates positive evidence. */
-    Negative,  /**< Stash hit indicates known negative override. */
+    Positive, /**< Stash hit indicates positive evidence. */
+    Negative, /**< Stash hit indicates known negative override. */
 };
 
 /**
